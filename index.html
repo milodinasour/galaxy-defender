@@ -202,8 +202,9 @@
       <b>Drag one finger</b> left/right to move &nbsp;·&nbsp; hold <b>FIRE</b> to shoot<br>
     </span>
     <span style="color:#f66">Don't shoot or touch the bombs!</span>
-    <span class="desktop-only">&nbsp;·&nbsp; <b>M</b> mute &nbsp;·&nbsp; click anywhere for music</span>
+    <span class="desktop-only">&nbsp;·&nbsp; <b>M</b> mute &nbsp;·&nbsp; <b>B</b> boss test &nbsp;·&nbsp; click anywhere for music</span>
     <span class="touch-only"><br>Tap anywhere for music</span>
+    <br><span style="color:#ffb347">⚠ Level 5: a BOSS ship attacks. 50 hits = 800 pts. Don't touch it!</span>
   </div>
 </div>
 
@@ -237,6 +238,23 @@ const COUNTDOWN_TIME = 3.6;    // "3", "2", "1" (1s each) then "GO!" (0.6s)
 const SHIP_HIT_RADIUS = 18;    // ship's collision circle for touching bombs
 const HIGH_SCORE_KEY = "galaxyDefenderHighScore";
 
+// Test shortcuts:
+//   Press B on the start screen  -> level 5 with the boss arriving after 2s
+//   index.html#level=5           start at level 5 (the boss arrives 5-20s in)
+//   index.html#level=5&boss=now  same, with the boss arriving after 2s
+//   (?level=5 works too). Test runs don't save a high score.
+const params = new URLSearchParams(location.search + "&" + location.hash.slice(1));
+let startLevel = Math.max(1, Math.min(99, parseInt(params.get("level"), 10) || 1));
+let bossNow = params.get("boss") === "now";
+let testMode = startLevel > 1 || bossNow;
+
+function startBossTest() {
+  startLevel = BOSS_LEVEL;
+  bossNow = true;
+  testMode = true;
+  startGame();
+}
+
 // Shootable falling items. weight = how often it spawns relative to others.
 const TARGETS = {
   small:  { kind: "rock",  radius: 14, points: 30, weight: 18, speed: 1.25, color: "#b9a68c" },
@@ -248,6 +266,16 @@ const TARGETS = {
 };
 const BOMB_RADIUS = 20;
 
+// Boss fight (level 5 only)
+const BOSS_LEVEL          = 5;
+const BOSS_HP             = 50;   // hits needed to destroy it
+const BOSS_POINTS         = 800;
+const BOSS_CRASH_PENALTY  = 300;  // points lost when the ship touches the boss
+const BOSS_DURATION       = 30;   // extra seconds, on top of the level's 30
+const BOSS_SPEED_BOOST    = 1.3;  // other items fall this much faster during the fight
+const ENEMY_BOMB_RADIUS   = 11;
+const HIT_INVULNERABLE    = 1.5;  // seconds the ship blinks safely after being hit
+
 // Particle colors for each kind of explosion
 const EXPLOSION_COLORS = {
   rock:  ["#fff3b0", "#ffb347", "#ff7a3c", "#9a8a76"],
@@ -255,6 +283,8 @@ const EXPLOSION_COLORS = {
   alien: ["#e0ffe0", "#b6ff9a", "#66ff66", "#2fa84f"],
   fire:  ["#fff3b0", "#ffb347", "#ff5a1f", "#ff2a00"],
   bomb:  ["#ffffff", "#ff4040", "#ff9a3c", "#ffdd55"],
+  enemyBomb: ["#ffffff", "#ff8be6", "#ff3dc8", "#b0007a"],
+  boss:  ["#ffffff", "#fff3b0", "#ffb347", "#ff4040", "#a01040"],
 };
 
 /** Difficulty settings for a given level (1-based). */
@@ -324,7 +354,7 @@ document.documentElement.style.setProperty(
 
 /** Hide the cursor during the countdown and gameplay, show the plane otherwise. */
 function updateCursor() {
-  document.body.classList.toggle("in-game", state === "countdown" || state === "playing");
+  document.body.classList.toggle("in-game", state === "countdown" || state === "playing" || state === "bossWarning");
 }
 
 /* =====================================================================
@@ -412,6 +442,24 @@ const sfx = {
   beep() { playTone("sine", 660, 660, 0.18, 0.25); },
   go()   { playTone("square", 990, 990, 0.4, 0.1); playTone("sine", 1320, 1320, 0.4, 0.2); },
   gameOver() { playTone("sawtooth", 400, 60, 1.2, 0.15); },
+  siren() {
+    // Rising/falling alarm for the 3-second boss warning
+    for (let i = 0; i < 6; i++) {
+      playTone("sawtooth", 520, 880, 0.25, 0.07, i * 0.5);
+      playTone("sawtooth", 880, 520, 0.25, 0.07, i * 0.5 + 0.25);
+    }
+  },
+  heartbeat(volume) {
+    // "lub-dub"
+    playTone("sine", 75, 40, 0.16, volume);
+    playTone("sine", 68, 36, 0.13, volume * 0.8, 0.17);
+  },
+  bossHit()  { playTone("square", 320, 140, 0.06, 0.05); },
+  bossExplode() {
+    playNoise(1.6, 0.7, 1500);
+    playTone("sawtooth", 160, 30, 1.4, 0.25);
+    playTone("sine", 90, 25, 1.6, 0.4, 0.1);
+  },
   fanfare() {
     // Quick rising C-E-G-C, then a held major chord
     [72, 76, 79, 84].forEach((n, i) => playTone("square", mtof(n), mtof(n), 0.16, 0.08, i * 0.12));
@@ -499,6 +547,32 @@ const TRACKS = {
       synth(out, "sine", mtof(chord[pattern[s]] + 12), t, beat * 3, 0.07);
     },
   },
+
+  // Fast, tense boss-fight music: pounding drums, racing bass, alarm-like lead.
+  boss: {
+    volume: 0.5,
+    stepsPerBeat: 4,
+    bpm: () => 172,
+    step(out, i, t) {
+      const s = i % 16;
+      const bar = Math.floor(i / 16) % 4;
+      const root = [40, 40, 41, 39][bar];   // E2 E2 F2 D#2 — uneasy half-step moves
+      const len = 60 / this.bpm() / this.stepsPerBeat;
+
+      if (s % 4 === 0 || s === 14) kick(out, t);
+      if (s === 4 || s === 12) noiseHit(out, t, 0.12, 0.25, "bandpass", 2000);
+      noiseHit(out, t, 0.03, s % 2 ? 0.035 : 0.065, "highpass", 8000);
+
+      // Racing 16th-note bass jumping octaves
+      synth(out, "sawtooth", mtof(root + (s % 2 ? 12 : 0)), t, len * 0.9, 0.07);
+
+      // Diminished "alarm" lead on 8th notes
+      if (s % 2 === 0) {
+        const lead = [0, 3, 6, 9, 6, 3, 1, 0][s / 2];
+        synth(out, "square", mtof(root + 36 + lead), t, len * 1.6, 0.035);
+      }
+    },
+  },
 };
 
 /** Look-ahead scheduler: queues notes slightly ahead so the music never stutters. */
@@ -575,6 +649,7 @@ window.addEventListener("keydown", (e) => {
   keys[e.code] = true;
   unlockAudio();
   if (e.code === "KeyM") toggleMute();
+  if (e.code === "KeyB" && state === "start") startBossTest();
   if (e.code === "Space") {
     e.preventDefault();
     // On game over, only restart once the Game Over screen is showing
@@ -656,7 +731,7 @@ document.addEventListener("touchmove", (e) => { if (e.touches.length > 1) e.prev
 /* =====================================================================
    GAME STATE
    ===================================================================== */
-let state = "start";          // "start" | "countdown" | "playing" | "gameover"
+let state = "start";          // "start" | "countdown" | "playing" | "bossWarning" | "gameover"
 let player = null;
 let bullets = [];
 let items = [];               // everything that falls: rocks, stars, aliens, fire, bombs
@@ -680,6 +755,15 @@ let shakeTime = 0, shakeStrength = 0;
 let bannerTime = 0, bannerText = "", bannerSub = "", bannerColor = "#fff";
 let damageFlash = 0;
 let confettiRainTime = 0;
+
+// Boss fight state
+let boss = null;              // the enemy ship while it's on screen
+let bossDone = false;         // the boss only comes once per game
+let bossTriggerAt = null;     // seconds into level 5 when the boss warning starts
+let bossWarningTime = 0, bossWarningLabel = "";
+let bossTimeLeft = 0;         // the fight's own 30-second clock
+let danger = 0;               // 0..1, how close the boss is to the bottom
+let heartbeatTimer = 0, heartbeatPulse = 0;
 
 /* ---------- Background stars (3 parallax layers) ---------- */
 function createStars() {
@@ -713,6 +797,7 @@ function createPlayer() {
     speed: 520,           // px/sec with keyboard
     fireCooldown: 0,
     fireRate: 0.16,       // seconds between shots while holding fire
+    invulnerable: 0,      // seconds of safety left after being hit
   };
 }
 
@@ -739,6 +824,14 @@ function startGame() {
   bannerTime = 0;
   startingHigh = highScore;
   celebrated = false;
+  boss = null;
+  bossDone = false;
+  bossTriggerAt = null;
+  danger = 0;
+
+  // Test shortcut: jump straight to a later level
+  level = startLevel;
+  if (level === BOSS_LEVEL || bossNow) bossTriggerAt = bossNow ? 2 : 5 + Math.random() * 15;
 
   // 3-2-1 countdown before the action begins
   state = "countdown";
@@ -753,7 +846,7 @@ function startGame() {
 /** Called when the countdown reaches zero. */
 function beginPlay() {
   state = "playing";
-  showBanner("LEVEL 1");
+  showBanner("LEVEL " + level, testMode ? "Test mode" : "");
   music.play("game");
 }
 
@@ -762,15 +855,19 @@ function nextLevel() {
   timeLeft = LEVEL_DURATION;
   showBanner("LEVEL " + level, "Faster · More bombs!");
   sfx.levelUp();
+  // The boss shows up somewhere between the 5th and 20th second of its level
+  bossTriggerAt = level === BOSS_LEVEL && !bossDone ? 5 + Math.random() * 15 : null;
 }
 
 function gameOver() {
   state = "gameover";
   updateCursor();
+  boss = null;
+  danger = 0;
   music.stop(0.3);
   sfx.gameOver();
 
-  const isNewBest = score > startingHigh && score > 0;
+  const isNewBest = score > startingHigh && score > 0 && !testMode;
   if (isNewBest) {
     highScore = score;
     saveHighScore(highScore);
@@ -807,7 +904,7 @@ function shakeScreen(duration, strength) {
 function addScore(points) {
   score += points;
   // Cheer the moment the previous record is beaten (only if there was one)
-  if (!celebrated && startingHigh > 0 && score > startingHigh) {
+  if (!celebrated && !testMode && startingHigh > 0 && score > startingHigh) {
     celebrated = true;
     celebrate(false);
   }
@@ -910,7 +1007,8 @@ function spawnItem() {
   // Aliens need extra side room for their zig-zag
   const margin = radius + (type === "alien" ? 70 : 0);
   const x = margin + Math.random() * Math.max(0, W - margin * 2);
-  const speed = settings.fallSpeed * (0.8 + Math.random() * 0.5);
+  const boost = boss ? BOSS_SPEED_BOOST : 1;   // everything falls faster during the boss fight
+  const speed = settings.fallSpeed * boost * (0.8 + Math.random() * 0.5);
   items.push(createItem(type, x, -radius, speed));
 }
 
@@ -958,6 +1056,8 @@ function shoot() {
 }
 
 function updatePlayer(dt, canShoot) {
+  player.invulnerable = Math.max(0, player.invulnerable - dt);
+
   // Keyboard movement
   let dir = 0;
   if (keys.ArrowLeft || keys.KeyA) dir -= 1;
@@ -1028,25 +1128,42 @@ function handleCollisions() {
       item.dead = true;
       if (item.kind === "bomb") {
         hitBomb(item);
+      } else if (item.kind === "enemyBomb") {
+        // Shooting the boss's bombs is safe: they just pop
+        spawnExplosion(item.x, item.y, EXPLOSION_COLORS.enemyBomb, 10, 140);
+        sfx.bossHit();
       } else {
         destroyTarget(item);
       }
       break;
     }
+
+    // Bullets that got past the falling items can hit the boss
+    if (!bullet.dead && boss && insideBoss(bullet.x, bullet.y, 0)) {
+      bullet.dead = true;
+      hitBoss(bullet.x, bullet.y);
+    }
   }
 
-  // Ship vs. bombs: touching a bomb also costs a life
-  if (state === "playing") {
+  // Ship vs. bombs (normal and boss bombs): touching one costs a life
+  if (state === "playing" && player.invulnerable <= 0) {
     for (const item of items) {
-      if (item.dead || item.kind !== "bomb") continue;
+      if (item.dead || (item.kind !== "bomb" && item.kind !== "enemyBomb")) continue;
       const dx = player.x - item.x;
       const dy = player.y - item.y;
       const reach = item.radius + SHIP_HIT_RADIUS;
       if (dx * dx + dy * dy < reach * reach) {
         item.dead = true;
         hitBomb(item);
+        player.invulnerable = HIT_INVULNERABLE;
+        break;
       }
     }
+  }
+
+  // Ship vs. boss: crashing into it costs a life and points
+  if (state === "playing" && boss && player.invulnerable <= 0 && insideBoss(player.x, player.y, SHIP_HIT_RADIUS)) {
+    crashIntoBoss();
   }
 
   bullets = bullets.filter((b) => !b.dead);
@@ -1071,6 +1188,160 @@ function hitBomb(bomb) {
   if (lives <= 0) gameOver();
 }
 
+/* =====================================================================
+   BOSS FIGHT
+   ===================================================================== */
+/** Freeze the action and show a 3-2-1 "enemy ship approaching" warning. */
+function startBossWarning() {
+  state = "bossWarning";
+  bossWarningTime = 3;
+  bossWarningLabel = "";
+  bannerTime = 0;   // nothing else on screen during the warning
+  updateCursor();
+  music.stop(0.3);
+  sfx.siren();
+}
+
+function updateBossWarning(dt) {
+  bossWarningTime -= dt;
+  const label = String(Math.max(1, Math.ceil(bossWarningTime)));
+  if (label !== bossWarningLabel) {
+    bossWarningLabel = label;
+    sfx.beep();
+  }
+  if (bossWarningTime <= 0) {
+    spawnBoss();
+    state = "playing";
+    music.play("boss");
+  }
+}
+
+function spawnBoss() {
+  const w = Math.min(220, W * 0.5);
+  const h = w * 0.62;
+  boss = {
+    x: W / 2,
+    y: -h / 2,
+    w, h,
+    hp: BOSS_HP,
+    // After a quick entrance it creeps down so it reaches the bottom as the 30s run out
+    vy: (H + h / 2 - h * 0.55) / (BOSS_DURATION - 2),
+    sideSpeed: Math.min(160, W * 0.4),
+    targetX: W / 2,
+    retarget: 0,
+    bombTimer: 1.5,
+    flash: 0,
+    age: 0,
+  };
+  bossTimeLeft = BOSS_DURATION;
+  heartbeatTimer = 0;
+}
+
+/** Is the point (px, py) inside the boss's oval, grown by `pad` pixels? */
+function insideBoss(px, py, pad) {
+  const rx = (px - boss.x) / (boss.w / 2 + pad);
+  const ry = (py - boss.y) / (boss.h / 2 + pad);
+  return rx * rx + ry * ry < 1;
+}
+
+function updateBoss(dt) {
+  if (!boss) return;
+  boss.age += dt;
+  boss.flash = Math.max(0, boss.flash - dt);
+  bossTimeLeft -= dt;
+
+  // Fly in quickly, then creep down slowly
+  const entering = boss.y < boss.h * 0.55;
+  boss.y += (entering ? 140 : boss.vy) * dt;
+
+  // Drift randomly left and right
+  boss.retarget -= dt;
+  if (boss.retarget <= 0) {
+    const margin = boss.w / 2 + 10;
+    boss.targetX = margin + Math.random() * Math.max(0, W - margin * 2);
+    boss.retarget = 0.8 + Math.random() * 1.7;
+  }
+  const step = boss.sideSpeed * dt;
+  boss.x += Math.max(-step, Math.min(step, boss.targetX - boss.x));
+
+  // Drop bombs straight down
+  if (!entering) {
+    boss.bombTimer -= dt;
+    if (boss.bombTimer <= 0) {
+      items.push({
+        kind: "enemyBomb",
+        x: boss.x + (Math.random() - 0.5) * boss.w * 0.4,
+        y: boss.y + boss.h / 2,
+        radius: ENEMY_BOMB_RADIUS,
+        vx: 0,
+        vy: 260 + Math.random() * 60,
+        rotation: 0,
+        spin: 4,
+        age: 0,
+      });
+      boss.bombTimer = 1.0 + Math.random() * 0.9;
+    }
+  }
+
+  // Danger rises as the boss closes in on the bottom: red frame + faster, louder heartbeat
+  const gap = (player.y - 25) - (boss.y + boss.h / 2);
+  danger = Math.max(0, Math.min(1, 1 - gap / (H * 0.5)));
+  heartbeatTimer -= dt;
+  if (danger > 0 && heartbeatTimer <= 0) {
+    sfx.heartbeat(0.15 + 0.65 * danger);
+    heartbeatPulse = 1;
+    heartbeatTimer = 1.1 - 0.75 * danger;
+  }
+
+  // Leaving the screen or running out of time ends the fight with no penalty
+  if (boss.y - boss.h / 2 > H || bossTimeLeft <= 0) endBoss(false);
+}
+
+function hitBoss(x, y) {
+  boss.hp--;
+  boss.flash = 0.07;
+  spawnExplosion(x, y, ["#fff", "#ffd27a", "#ff6a3c"], 5, 120);
+  sfx.bossHit();
+  if (boss.hp <= 0) endBoss(true);
+}
+
+function crashIntoBoss() {
+  lives--;
+  score = Math.max(0, score - BOSS_CRASH_PENALTY);
+  player.invulnerable = 2;
+  spawnExplosion(player.x, player.y, EXPLOSION_COLORS.bomb, 50, 320);
+  floatingTexts.push({ x: player.x, y: player.y - 40, text: "-1 LIFE  -" + BOSS_CRASH_PENALTY, life: 1.3, color: "#ff5555" });
+  shakeScreen(0.5, 16);
+  damageFlash = 0.4;
+  sfx.bomb();
+  if (lives <= 0) gameOver();
+}
+
+/** Ends the fight. destroyed = player won; otherwise it escaped (no penalty). */
+function endBoss(destroyed) {
+  if (destroyed) {
+    // Chain of explosions across the hull
+    for (let i = 0; i < 6; i++) {
+      spawnExplosion(
+        boss.x + (Math.random() - 0.5) * boss.w * 0.8,
+        boss.y + (Math.random() - 0.5) * boss.h * 0.8,
+        EXPLOSION_COLORS.boss, 40, 420
+      );
+    }
+    floatingTexts.push({ x: boss.x, y: boss.y, text: "+" + BOSS_POINTS, life: 1.6 });
+    addScore(BOSS_POINTS);
+    shakeScreen(0.8, 18);
+    sfx.bossExplode();
+    showBanner("BOSS DESTROYED!", "+" + BOSS_POINTS + " points", "#7dff6a");
+  } else {
+    showBanner("ENEMY ESCAPED", "No penalty", "#ffb347");
+  }
+  boss = null;
+  bossDone = true;
+  danger = 0;
+  music.play("game");
+}
+
 function updateEffects(dt) {
   for (const p of particles) {
     p.x += p.vx * dt;
@@ -1090,6 +1361,7 @@ function updateEffects(dt) {
   if (shakeTime > 0) shakeTime -= dt;
   if (bannerTime > 0) bannerTime -= dt;
   if (damageFlash > 0) damageFlash -= dt;
+  heartbeatPulse = Math.max(0, heartbeatPulse - dt * 3);
 }
 
 function updateConfetti(dt) {
@@ -1152,17 +1424,25 @@ function updatePlaying(dt) {
     spawnItem();
     // Narrow (phone) screens get fewer items so they aren't overcrowded
     const widthFactor = Math.min(1.8, Math.max(1, 800 / W));
-    const interval = levelSettings(level).spawnInterval * widthFactor;
+    const bossFactor = boss ? 0.8 : 1;   // and items come more often during the boss fight
+    const interval = levelSettings(level).spawnInterval * widthFactor * bossFactor;
     spawnTimer = interval * (0.6 + Math.random() * 0.8);
   }
 
   updateItems(dt);
+  updateBoss(dt);
   handleCollisions();
+  if (state !== "playing") return;
 
-  // Level timer
-  if (state === "playing") {
+  // Level timer (paused during the boss fight, which has its own 30 seconds)
+  if (!boss) {
     timeLeft -= dt;
-    if (timeLeft <= 0) nextLevel();
+    if (bossTriggerAt !== null && !bossDone && LEVEL_DURATION - timeLeft >= bossTriggerAt) {
+      bossTriggerAt = null;
+      startBossWarning();
+    } else if (timeLeft <= 0) {
+      nextLevel();
+    }
   }
 }
 
@@ -1172,6 +1452,7 @@ function update(dt) {
   updateConfetti(dt);
   if (state === "countdown") updateCountdown(dt);
   else if (state === "playing") updatePlaying(dt);
+  else if (state === "bossWarning") updateBossWarning(dt);   // everything else is frozen
 }
 
 /* =====================================================================
@@ -1450,7 +1731,144 @@ function drawBomb(item) {
   ctx.restore();
 }
 
-const ITEM_DRAWERS = { rock: drawRock, star: drawStar, alien: drawAlien, fire: drawFire, bomb: drawBomb };
+/** The boss's bomb: a spiky magenta plasma mine (different from normal red bombs). */
+function drawEnemyBomb(item) {
+  const r = item.radius;
+  ctx.save();
+  ctx.translate(item.x, item.y);
+  ctx.rotate(item.age * item.spin);
+  ctx.shadowColor = "#ff3dc8";
+  ctx.shadowBlur = 16;
+  ctx.strokeStyle = "#ff8be6";
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  for (let i = 0; i < 8; i++) {
+    const a = (i * Math.PI) / 4;
+    ctx.moveTo(Math.cos(a) * r * 0.8, Math.sin(a) * r * 0.8);
+    ctx.lineTo(Math.cos(a) * r * 1.45, Math.sin(a) * r * 1.45);
+  }
+  ctx.stroke();
+  const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, 1, 0, 0, r);
+  g.addColorStop(0, "#ffffff");
+  g.addColorStop(0.4, "#ff4dd2");
+  g.addColorStop(1, "#8a005c");
+  ctx.fillStyle = g;
+  ctx.beginPath();
+  ctx.arc(0, 0, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+/** Outline of the boss hull, shared by the fill and the white hit-flash. */
+function bossHullPath(w, h) {
+  ctx.beginPath();
+  ctx.moveTo(0, h * 0.5);                 // nose points down at the player
+  ctx.lineTo(w * 0.16, h * 0.18);
+  ctx.lineTo(w * 0.5, -h * 0.02);
+  ctx.lineTo(w * 0.44, -h * 0.32);
+  ctx.lineTo(w * 0.16, -h * 0.26);
+  ctx.lineTo(w * 0.1, -h * 0.46);
+  ctx.lineTo(-w * 0.1, -h * 0.46);
+  ctx.lineTo(-w * 0.16, -h * 0.26);
+  ctx.lineTo(-w * 0.44, -h * 0.32);
+  ctx.lineTo(-w * 0.5, -h * 0.02);
+  ctx.lineTo(-w * 0.16, h * 0.18);
+  ctx.closePath();
+}
+
+/** Big enemy mothership with a health bar above it. */
+function drawBoss(b) {
+  const { w, h } = b;
+  ctx.save();
+  ctx.translate(b.x, b.y);
+
+  // Engine flames at the back (top), since it flies downward
+  for (const ex of [-w * 0.22, 0, w * 0.22]) {
+    const len = h * (0.25 + Math.random() * 0.12);
+    const fg = ctx.createLinearGradient(0, -h * 0.4, 0, -h * 0.4 - len);
+    fg.addColorStop(0, "#ffe680");
+    fg.addColorStop(1, "rgba(255, 60, 30, 0)");
+    ctx.fillStyle = fg;
+    ctx.beginPath();
+    ctx.moveTo(ex - w * 0.045, -h * 0.38);
+    ctx.lineTo(ex, -h * 0.4 - len);
+    ctx.lineTo(ex + w * 0.045, -h * 0.38);
+    ctx.fill();
+  }
+
+  // Wing cannons
+  ctx.fillStyle = "#3a3f4a";
+  ctx.fillRect(-w * 0.33, -h * 0.05, w * 0.05, h * 0.3);
+  ctx.fillRect(w * 0.28, -h * 0.05, w * 0.05, h * 0.3);
+
+  // Hull
+  ctx.shadowColor = "#ff2050";
+  ctx.shadowBlur = 25;
+  const hg = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
+  hg.addColorStop(0, "#3a0a20");
+  hg.addColorStop(0.5, "#7a1438");
+  hg.addColorStop(1, "#2a0618");
+  ctx.fillStyle = hg;
+  bossHullPath(w, h);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = "#ff3b5c";
+  ctx.lineWidth = 2;
+  ctx.stroke();
+
+  // Armored spine
+  ctx.fillStyle = "#a82a50";
+  ctx.beginPath();
+  ctx.moveTo(0, h * 0.42);
+  ctx.lineTo(w * 0.09, 0);
+  ctx.lineTo(w * 0.07, -h * 0.4);
+  ctx.lineTo(-w * 0.07, -h * 0.4);
+  ctx.lineTo(-w * 0.09, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  // Glowing red "eye" that pulses
+  ctx.shadowColor = "#ff0000";
+  ctx.shadowBlur = 20;
+  ctx.fillStyle = `rgb(255, ${40 + 60 * Math.sin(b.age * 6)}, 40)`;
+  ctx.beginPath();
+  ctx.ellipse(0, h * 0.05, w * 0.06, h * 0.12, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // White flash when hit
+  if (b.flash > 0) {
+    ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
+    bossHullPath(w, h);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  // Health bar above the ship: green when full, shifting to red as it drops
+  const frac = b.hp / BOSS_HP;
+  const barW = w;
+  const barH = 9;
+  const barX = b.x - barW / 2;
+  const barY = b.y - h / 2 - 22;
+  ctx.save();
+  ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+  ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
+  ctx.fillStyle = `hsl(${Math.round(120 * frac)}, 90%, 48%)`;
+  ctx.fillRect(barX, barY, barW * frac, barH);
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+  ctx.lineWidth = 1;
+  ctx.strokeRect(barX - 2, barY - 2, barW + 4, barH + 4);
+  ctx.font = "bold 12px 'Trebuchet MS', sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+  ctx.fillStyle = "#fff";
+  ctx.fillText("BOSS  " + b.hp + " / " + BOSS_HP, b.x, barY - 4);
+  ctx.restore();
+}
+
+const ITEM_DRAWERS = {
+  rock: drawRock, star: drawStar, alien: drawAlien, fire: drawFire, bomb: drawBomb, enemyBomb: drawEnemyBomb,
+};
 
 function drawItem(item) {
   ITEM_DRAWERS[item.kind](item);
@@ -1507,11 +1925,19 @@ function drawHUD() {
   ctx.textAlign = "center";
   ctx.font = "bold 20px 'Trebuchet MS', sans-serif";
   ctx.fillStyle = "#9cf";
-  ctx.fillText("LEVEL " + level, W / 2, 12);
-  const secs = Math.max(0, Math.ceil(timeLeft));
-  ctx.font = "bold 26px 'Trebuchet MS', sans-serif";
-  ctx.fillStyle = secs <= 5 ? "#ff7070" : "#fff";
-  ctx.fillText("0:" + String(secs).padStart(2, "0"), W / 2, 36);
+  ctx.fillText("LEVEL " + level + (testMode ? " (TEST)" : ""), W / 2, 12);
+  if (boss) {
+    // During the boss fight the level clock is paused; show the fight's own clock
+    const bossSecs = Math.max(0, Math.ceil(bossTimeLeft));
+    ctx.font = "bold 24px 'Trebuchet MS', sans-serif";
+    ctx.fillStyle = "#ff5050";
+    ctx.fillText("BOSS 0:" + String(bossSecs).padStart(2, "0"), W / 2, 36);
+  } else {
+    const secs = Math.max(0, Math.ceil(timeLeft));
+    ctx.font = "bold 26px 'Trebuchet MS', sans-serif";
+    ctx.fillStyle = secs <= 5 ? "#ff7070" : "#fff";
+    ctx.fillText("0:" + String(secs).padStart(2, "0"), W / 2, 36);
+  }
 
   // Right: lives as ship icons
   ctx.shadowBlur = 0;
@@ -1571,6 +1997,48 @@ function drawCountdown() {
   ctx.restore();
 }
 
+/** Red glowing screen edges that throb with the heartbeat as the boss gets close. */
+function drawDangerFrame() {
+  if (danger <= 0) return;
+  const alpha = danger * (0.45 + 0.55 * heartbeatPulse);
+  const g = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.75);
+  g.addColorStop(0, "rgba(255, 0, 0, 0)");
+  g.addColorStop(1, `rgba(255, 0, 0, ${alpha * 0.75})`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = `rgba(255, 40, 40, ${alpha})`;
+  ctx.lineWidth = 6 + 6 * danger;
+  ctx.strokeRect(0, 0, W, H);
+}
+
+/** Frozen screen with a flashing "enemy ship approaching" warning and 3-2-1. */
+function drawBossWarning() {
+  const flash = Math.floor(bossWarningTime * 4) % 2 === 0;
+  ctx.save();
+  ctx.fillStyle = `rgba(80, 0, 0, ${flash ? 0.45 : 0.3})`;
+  ctx.fillRect(0, 0, W, H);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.shadowColor = "#ff0000";
+  ctx.shadowBlur = 25;
+
+  if (flash) {
+    ctx.font = "bold 56px 'Trebuchet MS', sans-serif";
+    ctx.fillStyle = "#ff3030";
+    ctx.fillText("⚠ WARNING ⚠", W / 2, H / 2 - 120, W * 0.92);
+  }
+  ctx.font = "bold 24px 'Trebuchet MS', sans-serif";
+  ctx.fillStyle = "#ffd0d0";
+  ctx.fillText("ENEMY SHIP APPROACHING", W / 2, H / 2 - 65, W * 0.92);
+
+  // 3-2-1, each number starting big and shrinking
+  const frac = bossWarningTime - Math.floor(bossWarningTime);
+  ctx.font = `bold ${Math.round(90 + 50 * frac)}px 'Trebuchet MS', sans-serif`;
+  ctx.fillStyle = "#fff";
+  ctx.fillText(bossWarningLabel, W / 2, H / 2 + 30);
+  ctx.restore();
+}
+
 function drawConfetti() {
   fxCtx.clearRect(0, 0, W, H);
   for (const c of confetti) {
@@ -1598,8 +2066,13 @@ function draw() {
 
   if (state !== "start") {
     for (const item of items) drawItem(item);
+    if (boss) drawBoss(boss);
     drawBullets();
-    if (state === "playing" || state === "countdown") drawShip(player.x, player.y, 1, true);
+    // Ship blinks while it's briefly invulnerable after a hit
+    const blinkOff = player && player.invulnerable > 0 && Math.floor(player.invulnerable * 12) % 2 === 0;
+    if ((state === "playing" || state === "countdown" || state === "bossWarning") && !blinkOff) {
+      drawShip(player.x, player.y, 1, true);
+    }
     drawParticles();
     drawFloatingTexts();
   }
@@ -1612,11 +2085,14 @@ function draw() {
     ctx.fillRect(0, 0, W, H);
   }
 
+  drawDangerFrame();
+
   if (state !== "start") {
     drawHUD();
     drawBanner();
   }
   if (state === "countdown") drawCountdown();
+  if (state === "bossWarning") drawBossWarning();
 
   drawConfetti();
 }
