@@ -28,6 +28,27 @@
   }
   canvas { display: block; }
 
+  /* The game lives in a portrait, phone-shaped column centred on the screen.
+     (transform makes every fixed-position element inside it, like menus,
+     buttons and canvases, sit relative to this column instead of the window.) */
+  html { background: #020108; }
+  body { background: #020108; }
+  #stage {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: var(--stage-w, 100vw);
+    transform: translateX(-50%);
+    overflow: hidden;
+    background: #05030f;
+    box-shadow: 0 0 60px rgba(90, 120, 255, 0.18);
+    container-type: inline-size;
+    container-name: stage;
+  }
+  /* 3D scene underneath, flat HUD canvas on top (both fill the stage) */
+  #scene3d, #game { position: fixed; inset: 0; width: 100%; height: 100%; }
+
   /* Show hints for the input the player actually has */
   .touch-only { display: none; }
   body.touch .touch-only { display: initial; }
@@ -57,13 +78,18 @@
     background: rgba(5, 3, 20, 0.6);
     /* Very short screens: let the menu scroll instead of cutting it off */
     justify-content: safe center;
+    /* keep menus clear of the round buttons in the top corners */
+    padding: 58px 0 12px;
+    box-sizing: border-box;
+    scrollbar-width: none;            /* scrolls if it must, without a visible bar */
     overflow-y: auto;
     touch-action: pan-y;
   }
+  .overlay::-webkit-scrollbar { display: none; }
   .hidden { display: none !important; }   /* wins over any element's own display style */
 
   .title {
-    font-size: clamp(40px, 8vw, 84px);
+    font-size: clamp(32px, 9cqw, 64px);
     font-weight: bold;
     letter-spacing: 4px;
     margin: 0 0 10px;
@@ -192,7 +218,7 @@
   #restartBtn { left: 64px; }
   #exitBtn { left: 116px; }
   body.in-game:not(.tutorial) .game-ctl { display: block; }
-  @media (max-width: 559px) {   /* phones: slightly smaller so the HUD text has room */
+  @container stage (max-width: 559px) {   /* narrow stage: slightly smaller so the HUD text has room */
     .icon-btn { height: 38px; min-width: 38px; border-radius: 19px; }
     #soundBtn, .game-ctl { width: 38px; font-size: 17px; }
     #restartBtn { left: 56px; }
@@ -202,7 +228,7 @@
   /* "Are you sure?" box shown while the game is paused */
   #confirmScreen { z-index: 7; background: rgba(5, 3, 20, 0.75); }
   .confirm-box {
-    width: min(360px, 88vw);
+    width: min(360px, 88cqw);
     padding: 22px 20px 18px;
     border: 2px solid rgba(120, 170, 255, 0.6);
     border-radius: 16px;
@@ -266,7 +292,7 @@
   }
   .pilot-msg { color: #ff8080; font-size: 14px; min-height: 18px; margin-top: 4px; }
 
-  /* Menu layout: stacked on phones; on wide screens the Top 5 sits to the right */
+  /* Menu layout: one column (the game is always portrait) */
   .menu-layout {
     display: grid;
     grid-template-columns: auto;
@@ -274,20 +300,10 @@
     align-items: center;
   }
   .menu-top, .menu-bottom { display: flex; flex-direction: column; align-items: center; }
-  @media (min-width: 820px) {
-    .menu-layout {
-      grid-template-columns: auto 320px;
-      grid-template-areas: "top board" "bottom board";
-      column-gap: 48px;
-    }
-    .menu-top { grid-area: top; }
-    .menu-bottom { grid-area: bottom; }
-    .mini-board { grid-area: board; }
-  }
 
   /* Global Top 5 panel */
   .mini-board {
-    width: min(340px, 92vw);
+    width: min(340px, 92cqw);
     margin: 14px 0 6px;
     padding: 10px 10px 6px;
     border: 2px solid rgba(120, 170, 255, 0.45);
@@ -317,25 +333,37 @@
   .lb-status.ok { color: #7dff6a; }
   .lb-status.err { color: #ff8080; }
 
-  /* Smaller phones: tighten the start screen so everything fits */
-  @media (max-width: 480px), (max-height: 700px) {
+  /* Phone-sized menus (the stage is always portrait) */
+  @container stage (min-width: 0px) {
     .big-btn { min-height: 62px; font-size: 26px; margin-top: 12px; }
     .big-btn.secondary { min-height: 48px; margin-top: 10px; }
     .stats { margin: 8px 0 10px; }
-    .title { font-size: min(9vw, 56px); letter-spacing: 2px; padding: 0 10px; }
+    .title { font-size: min(9cqw, 56px); letter-spacing: 2px; padding: 0 10px; }
     .subtitle { font-size: 17px; }
-    .legend { gap: 2px 8px; margin-top: 14px; max-width: 340px; }
+    .legend { gap: 2px 6px; margin-top: 14px; max-width: 96cqw; }   /* one row when there's room */
     .legend canvas { width: 48px; height: 48px; }
     .help { font-size: 13px; line-height: 1.6; padding: 0 16px; }
     .stats { font-size: 21px; }
     .new-best { font-size: 24px; }
   }
+  /* Short screens: drop the help text, then the item legend (HOW TO PLAY covers both),
+     so START, the pilot name and the Top 5 always fit without scrolling */
+  @media (max-height: 830px) { .help { display: none; } }
+  @media (max-height: 700px) { .legend { display: none; } }
 </style>
 </head>
 <body>
+<div id="stage">
 
-<canvas id="game"></canvas>
-<canvas id="fx"></canvas>
+<canvas id="scene3d"></canvas>   <!-- the 3D world (Three.js) -->
+<canvas id="game"></canvas>      <!-- flat HUD drawn on top -->
+<canvas id="fx"></canvas>        <!-- confetti -->
+
+<!-- Shown only if the 3D library can't be downloaded -->
+<div id="no3d" class="overlay hidden" style="z-index: 20; background: #05030f;">
+  <h1 class="title">GALAXY DEFENDER</h1>
+  <div class="subtitle">Couldn't load the 3D graphics.<br>Check your internet connection and refresh the page.</div>
+</div>
 
 <!-- Start screen -->
 <div id="startScreen" class="overlay">
@@ -424,7 +452,6 @@
 <button id="fireBtn" aria-label="Fire">FIRE</button>
 
 <!-- Shown when a phone is held sideways -->
-<div id="rotateHint">📱 Please turn your phone upright<br>to play Galaxy Defender</div>
 
 <!-- Game over screen -->
 <div id="gameOverScreen" class="overlay hidden">
@@ -447,6 +474,13 @@
   </div>
 </div>
 
+</div>  <!-- /stage -->
+
+<!-- Shown when a phone or tablet is held sideways (covers the whole window) -->
+<div id="rotateHint">📱 Please turn your phone upright<br>to play Galaxy Defender</div>
+
+<!-- Three.js (3D graphics library), pinned version -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
 <script>
 "use strict";
 
@@ -521,7 +555,7 @@ function levelSettings(level) {
 const canvas = document.getElementById("game");
 const fxCanvas = document.getElementById("fx");
 const fxCtx = fxCanvas.getContext("2d");
-let ctx = canvas.getContext("2d");   // `let` so legend icons can borrow the draw functions
+const ctx = canvas.getContext("2d");   // flat HUD layer on top of the 3D scene
 let W = 0, H = 0;                    // size in CSS pixels; all game code works in these units
 
 // Draw at the screen's real pixel density so phones look sharp (capped for speed)
@@ -534,6 +568,7 @@ function setTouchMode() {
   isTouch = true;
   document.body.classList.add("touch");
   if (player) player.y = shipY();
+  resize3D();
 }
 
 /** Ship height on screen: raised on touch screens so the thumb and fire button don't cover it. */
@@ -541,9 +576,14 @@ function shipY() {
   return H - (isTouch ? 150 : 70);
 }
 
+// The game is always portrait: on wide screens it becomes a phone-shaped column
+const STAGE_RATIO = 9 / 16;      // widest the stage can be, relative to its height
+const STAGE_MAX_WIDTH = 480;     // and never wider than a large phone
+
 function resize() {
-  W = window.innerWidth;
   H = window.innerHeight;
+  W = Math.min(window.innerWidth, Math.round(H * STAGE_RATIO), STAGE_MAX_WIDTH);
+  document.documentElement.style.setProperty("--stage-w", W + "px");
   for (const [c, c2d] of [[canvas, ctx], [fxCanvas, fxCtx]]) {
     c.width = Math.round(W * DPR);
     c.height = Math.round(H * DPR);
@@ -552,9 +592,11 @@ function resize() {
     c2d.setTransform(DPR, 0, 0, DPR, 0, 0);
   }
   if (player) player.y = shipY();
-  createStars(); // re-scatter stars so they fill the new size evenly
-  // Phones held sideways get a "turn upright" message and the game pauses
-  rotateHint.classList.toggle("show", isTouch && W > H && H < 500);
+  resize3D();
+  // Phones and tablets held sideways get a "turn upright" message and the game pauses
+  // (touch-only devices; a touchscreen laptop with a trackpad can still play sideways)
+  const phoneOrTablet = isTouch && !window.matchMedia("(any-pointer: fine)").matches;
+  rotateHint.classList.toggle("show", phoneOrTablet && window.innerWidth > window.innerHeight);
 }
 window.addEventListener("resize", resize);
 window.addEventListener("orientationchange", () => setTimeout(resize, 200));
@@ -1151,7 +1193,7 @@ window.addEventListener("keydown", (e) => {
 window.addEventListener("keyup", (e) => { keys[e.code] = false; });
 
 canvas.addEventListener("mousemove", (e) => {
-  mouse.x = e.clientX;
+  mouse.x = e.clientX - canvas.getBoundingClientRect().left;   // relative to the stage
   mouse.active = true;
 });
 canvas.addEventListener("mousedown", () => {
@@ -1291,7 +1333,6 @@ let items = [];               // everything that falls: rocks, stars, aliens, fi
 let particles = [];
 let floatingTexts = [];       // "+30" score popups
 let confetti = [];            // high-score celebration (drawn on the fx canvas)
-let stars = [];
 
 let score = 0;
 let level = 1;
@@ -1318,28 +1359,6 @@ let bossTimeLeft = 0;         // the fight's own 30-second clock
 let bossLives = 0;            // the fight's own lives; losing them all ends the fight
 let danger = 0;               // 0..1, how close the boss is to the bottom
 let heartbeatTimer = 0, heartbeatPulse = 0;
-
-/* ---------- Background stars (3 parallax layers) ---------- */
-function createStars() {
-  stars = [];
-  const layers = [
-    { count: 90, speed: 12, size: 1.0, alpha: 0.45 },
-    { count: 50, speed: 28, size: 1.6, alpha: 0.7 },
-    { count: 22, speed: 55, size: 2.2, alpha: 1.0 },
-  ];
-  for (const layer of layers) {
-    for (let i = 0; i < layer.count; i++) {
-      stars.push({
-        x: Math.random() * W,
-        y: Math.random() * H,
-        speed: layer.speed,
-        size: layer.size * (0.6 + Math.random() * 0.6),
-        alpha: layer.alpha,
-        twinkle: Math.random() * Math.PI * 2,
-      });
-    }
-  }
-}
 
 /* ---------- Player ship ---------- */
 function createPlayer() {
@@ -2012,7 +2031,9 @@ function tutorialSpawn(types) {
   types.forEach((type, i) => {
     const x = (W * (i + 1)) / (types.length + 1);
     // Start just below the instruction panel so they're visible straight away
-    const item = createItem(type, x, 320 - (i % 2) * 30, TUTORIAL_FALL_SPEED);
+    // (but always well above the ship, even on very short windows)
+    const startY = Math.min(320, player.y - 140);
+    const item = createItem(type, x, startY - (i % 2) * 30, TUTORIAL_FALL_SPEED);
     if (item.kind !== "bomb") {
       item.vy = TUTORIAL_FALL_SPEED;   // same slow speed for every size
       item.vx = 0;
@@ -2191,7 +2212,7 @@ function drawTutorialPanel() {
 
 /** Size the start screen shows its item pictures at (matches the CSS: 48px on small screens). */
 function legendIconSize() {
-  return window.matchMedia("(max-width: 480px), (max-height: 700px)").matches ? 48 : 64;
+  return 48;   // the start-screen pictures are shown at 48px (the stage is always phone-sized)
 }
 
 /** Split text into lines that fit within maxWidth (using the current font). */
@@ -2254,13 +2275,6 @@ function updateConfetti(dt) {
   confetti = confetti.filter((c) => c.life > 0 && c.y < H + 20);
 }
 
-function updateStars(dt) {
-  for (const s of stars) {
-    s.y += s.speed * dt;
-    s.twinkle += dt * 2;
-    if (s.y > H) { s.y = 0; s.x = Math.random() * W; }
-  }
-}
 
 /** "3", "2", "1" for a second each, then "GO!" */
 function countdownLabel() {
@@ -2315,7 +2329,6 @@ function updatePlaying(dt) {
 }
 
 function update(dt) {
-  updateStars(dt);
   updateEffects(dt);
   updateConfetti(dt);
   if (state === "tutorial") updateTutorial(dt);
@@ -2327,370 +2340,24 @@ function update(dt) {
 /* =====================================================================
    DRAWING
    ===================================================================== */
-function drawBackground() {
-  // Deep space gradient
-  const g = ctx.createLinearGradient(0, 0, 0, H);
-  g.addColorStop(0, "#070418");
-  g.addColorStop(0.6, "#0d0a2a");
-  g.addColorStop(1, "#160c33");
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, H);
-
-  // Soft nebula glows
-  drawGlow(W * 0.2, H * 0.3, Math.max(W, H) * 0.35, "rgba(120, 50, 200, 0.10)");
-  drawGlow(W * 0.85, H * 0.65, Math.max(W, H) * 0.3, "rgba(40, 110, 220, 0.09)");
-
-  // Stars
-  for (const s of stars) {
-    ctx.globalAlpha = s.alpha * (0.7 + 0.3 * Math.sin(s.twinkle));
-    ctx.fillStyle = "#fff";
-    ctx.fillRect(s.x, s.y, s.size, s.size);
-  }
-  ctx.globalAlpha = 1;
+/** Draws a life icon (a picture of the 3D ship) centered at (x, y). */
+function drawShip(x, y, scale) {
+  if (!shipIcon) return;
+  const size = 56 * scale;
+  ctx.drawImage(shipIcon, x - size / 2, y - size / 2, size, size);
 }
 
-function drawGlow(x, y, radius, color) {
-  const g = ctx.createRadialGradient(x, y, 0, x, y, radius);
-  g.addColorStop(0, color);
-  g.addColorStop(1, "rgba(0,0,0,0)");
-  ctx.fillStyle = g;
-  ctx.fillRect(x - radius, y - radius, radius * 2, radius * 2);
-}
-
-/** Draws the ship shape centered at (x, y). Also used for life icons. */
-function drawShip(x, y, scale, flame) {
-  ctx.save();
-  ctx.translate(x, y);
-  ctx.scale(scale, scale);
-
-  // Engine flame
-  if (flame) {
-    const flicker = 10 + Math.random() * 8;
-    const fg = ctx.createLinearGradient(0, 18, 0, 18 + flicker);
-    fg.addColorStop(0, "#ffe680");
-    fg.addColorStop(1, "rgba(255, 90, 30, 0)");
-    ctx.fillStyle = fg;
-    ctx.beginPath();
-    ctx.moveTo(-7, 18);
-    ctx.lineTo(0, 18 + flicker);
-    ctx.lineTo(7, 18);
-    ctx.fill();
-  }
-
-  // Wings
-  ctx.fillStyle = "#3a6fd8";
-  ctx.beginPath();
-  ctx.moveTo(0, -6);
-  ctx.lineTo(22, 16);
-  ctx.lineTo(22, 22);
-  ctx.lineTo(-22, 22);
-  ctx.lineTo(-22, 16);
-  ctx.closePath();
-  ctx.fill();
-
-  // Body
-  const bg = ctx.createLinearGradient(-10, 0, 10, 0);
-  bg.addColorStop(0, "#9fb8e8");
-  bg.addColorStop(0.5, "#ffffff");
-  bg.addColorStop(1, "#9fb8e8");
-  ctx.fillStyle = bg;
-  ctx.beginPath();
-  ctx.moveTo(0, -25);
-  ctx.lineTo(10, 10);
-  ctx.lineTo(7, 20);
-  ctx.lineTo(-7, 20);
-  ctx.lineTo(-10, 10);
-  ctx.closePath();
-  ctx.fill();
-
-  // Cockpit
-  ctx.fillStyle = "#3cf";
-  ctx.beginPath();
-  ctx.ellipse(0, -5, 4, 8, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  ctx.restore();
-}
-
-function drawRock(item) {
-  ctx.save();
-  ctx.translate(item.x, item.y);
-  ctx.rotate(item.rotation);
-
-  ctx.fillStyle = item.color;
-  ctx.strokeStyle = "rgba(0,0,0,0.45)";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  item.shape.points.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y)));
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-
-  // Craters
-  ctx.fillStyle = "rgba(0,0,0,0.22)";
-  for (const c of item.shape.craters) {
-    ctx.beginPath();
-    ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  // Highlight edge for a bit of depth
-  ctx.strokeStyle = "rgba(255,255,255,0.15)";
-  ctx.beginPath();
-  ctx.arc(-item.radius * 0.2, -item.radius * 0.2, item.radius * 0.6, Math.PI, Math.PI * 1.5);
-  ctx.stroke();
-
-  ctx.restore();
-}
-
-/** Glowing, spinning golden star. */
-function drawStar(item) {
-  const r = item.radius;
-  ctx.save();
-  ctx.translate(item.x, item.y);
-  ctx.rotate(item.rotation);
-  ctx.shadowColor = "#ffe066";
-  ctx.shadowBlur = 18 + 8 * Math.sin(item.age * 8);
-  ctx.fillStyle = "#ffd84a";
-  ctx.strokeStyle = "#fff6c0";
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  for (let i = 0; i < 10; i++) {
-    const angle = -Math.PI / 2 + (i * Math.PI) / 5;
-    const rr = i % 2 === 0 ? r : r * 0.45;
-    ctx.lineTo(Math.cos(angle) * rr, Math.sin(angle) * rr);
-  }
-  ctx.closePath();
-  ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.stroke();
-  ctx.restore();
-}
-
-/** Little green alien in a flying saucer with blinking lights. */
-function drawAlien(item) {
-  const r = item.radius;
-  ctx.save();
-  ctx.translate(item.x, item.y);
-  ctx.rotate(Math.sin(item.age * 3) * 0.15);   // gentle wobble
-
-  // Glass dome
-  ctx.fillStyle = "rgba(150, 255, 200, 0.3)";
-  ctx.beginPath();
-  ctx.arc(0, -r * 0.1, r * 0.55, Math.PI, 0);
-  ctx.fill();
-
-  // Alien head and big black eyes
-  ctx.fillStyle = "#66ff66";
-  ctx.beginPath();
-  ctx.ellipse(0, -r * 0.3, r * 0.28, r * 0.32, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.fillStyle = "#000";
-  ctx.beginPath();
-  ctx.ellipse(-r * 0.12, -r * 0.33, r * 0.08, r * 0.13, 0.4, 0, Math.PI * 2);
-  ctx.ellipse(r * 0.12, -r * 0.33, r * 0.08, r * 0.13, -0.4, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Saucer
-  const g = ctx.createLinearGradient(0, -r * 0.2, 0, r * 0.5);
-  g.addColorStop(0, "#e0e6f0");
-  g.addColorStop(1, "#6a7280");
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.ellipse(0, r * 0.15, r, r * 0.35, 0, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Blinking lights around the rim
-  for (let i = -2; i <= 2; i++) {
-    const on = (Math.floor(item.age * 6) + i) % 2 === 0;
-    ctx.fillStyle = on ? "#ffff66" : "#ff55ff";
-    ctx.beginPath();
-    ctx.arc(i * r * 0.4, r * 0.2, r * 0.08, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.restore();
-}
-
-/** Fireball with a flickering flame tail pointing up (it falls down). */
-function drawFire(item) {
-  const r = item.radius;
-  const flicker = Math.sin(item.age * 30) * 0.2;
-  ctx.save();
-  ctx.translate(item.x, item.y);
-
-  // Flame tail
-  const tail = r * (2.3 + flicker);
-  const tg = ctx.createLinearGradient(0, -tail, 0, r);
-  tg.addColorStop(0, "rgba(255, 60, 0, 0)");
-  tg.addColorStop(0.5, "rgba(255, 120, 20, 0.8)");
-  tg.addColorStop(1, "#ffd23f");
-  ctx.fillStyle = tg;
-  ctx.beginPath();
-  ctx.moveTo(-r * 0.95, 0);
-  ctx.quadraticCurveTo(-r * 0.6, -tail * 0.6, 0, -tail);
-  ctx.quadraticCurveTo(r * 0.6, -tail * 0.6, r * 0.95, 0);
-  ctx.closePath();
-  ctx.fill();
-
-  // Hot glowing core
-  ctx.shadowColor = "#ff6a00";
-  ctx.shadowBlur = 20;
-  const cg = ctx.createRadialGradient(0, r * 0.2, 1, 0, 0, r);
-  cg.addColorStop(0, "#fffbe0");
-  cg.addColorStop(0.4, "#ffd23f");
-  cg.addColorStop(0.8, "#ff7a1a");
-  cg.addColorStop(1, "#d43a00");
-  ctx.fillStyle = cg;
-  ctx.beginPath();
-  ctx.arc(0, 0, r, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
-}
-
-function drawBomb(item) {
-  const glow = 0.6 + 0.4 * Math.sin(item.pulse);
-  const r = item.radius;
-
-  ctx.save();
-  ctx.translate(item.x, item.y);
-
-  // Pulsing red glow
-  ctx.shadowColor = "#ff2020";
-  ctx.shadowBlur = 20 + 15 * glow;
-
-  // Body
-  const g = ctx.createRadialGradient(-r * 0.3, -r * 0.3, 2, 0, 0, r);
-  g.addColorStop(0, "#ff8080");
-  g.addColorStop(0.5, "#e01818");
-  g.addColorStop(1, "#6a0000");
-  ctx.fillStyle = g;
-  ctx.beginPath();
-  ctx.arc(0, 0, r, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.shadowBlur = 0;
-
-  // Fuse on top with a flickering spark
-  ctx.strokeStyle = "#ccc";
-  ctx.lineWidth = 3;
-  ctx.beginPath();
-  ctx.moveTo(0, -r);
-  ctx.quadraticCurveTo(6, -r - 8, 2, -r - 12);
-  ctx.stroke();
-  ctx.fillStyle = Math.random() < 0.5 ? "#ffea00" : "#ff8a00";
-  ctx.beginPath();
-  ctx.arc(2, -r - 13, 3 + Math.random() * 2, 0, Math.PI * 2);
-  ctx.fill();
-
-  // Yellow warning triangle with "!"
-  ctx.fillStyle = "#ffdd00";
-  ctx.strokeStyle = "#000";
-  ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  ctx.moveTo(0, -r * 0.6);
-  ctx.lineTo(r * 0.6, r * 0.45);
-  ctx.lineTo(-r * 0.6, r * 0.45);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-  ctx.fillStyle = "#000";
-  ctx.font = `bold ${Math.round(r * 0.8)}px sans-serif`;
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("!", 0, r * 0.05);
-
-  ctx.restore();
-}
-
-/** Outline of the boss hull, shared by the fill and the white hit-flash. */
-function bossHullPath(w, h) {
-  ctx.beginPath();
-  ctx.moveTo(0, h * 0.5);                 // nose points down at the player
-  ctx.lineTo(w * 0.16, h * 0.18);
-  ctx.lineTo(w * 0.5, -h * 0.02);
-  ctx.lineTo(w * 0.44, -h * 0.32);
-  ctx.lineTo(w * 0.16, -h * 0.26);
-  ctx.lineTo(w * 0.1, -h * 0.46);
-  ctx.lineTo(-w * 0.1, -h * 0.46);
-  ctx.lineTo(-w * 0.16, -h * 0.26);
-  ctx.lineTo(-w * 0.44, -h * 0.32);
-  ctx.lineTo(-w * 0.5, -h * 0.02);
-  ctx.lineTo(-w * 0.16, h * 0.18);
-  ctx.closePath();
-}
-
-/** Big enemy mothership with a health bar above it. */
-function drawBoss(b) {
+/** The boss's health bar, drawn flat above the 3D boss: green when full, red when low. */
+function drawBossBar(b) {
   const { w, h } = b;
-  ctx.save();
-  ctx.translate(b.x, b.y);
-
-  // Engine flames at the back (top), since it flies downward
-  for (const ex of [-w * 0.22, 0, w * 0.22]) {
-    const len = h * (0.25 + Math.random() * 0.12);
-    const fg = ctx.createLinearGradient(0, -h * 0.4, 0, -h * 0.4 - len);
-    fg.addColorStop(0, "#ffe680");
-    fg.addColorStop(1, "rgba(255, 60, 30, 0)");
-    ctx.fillStyle = fg;
-    ctx.beginPath();
-    ctx.moveTo(ex - w * 0.045, -h * 0.38);
-    ctx.lineTo(ex, -h * 0.4 - len);
-    ctx.lineTo(ex + w * 0.045, -h * 0.38);
-    ctx.fill();
-  }
-
-  // Wing cannons
-  ctx.fillStyle = "#3a3f4a";
-  ctx.fillRect(-w * 0.33, -h * 0.05, w * 0.05, h * 0.3);
-  ctx.fillRect(w * 0.28, -h * 0.05, w * 0.05, h * 0.3);
-
-  // Hull
-  ctx.shadowColor = "#ff2050";
-  ctx.shadowBlur = 25;
-  const hg = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
-  hg.addColorStop(0, "#3a0a20");
-  hg.addColorStop(0.5, "#7a1438");
-  hg.addColorStop(1, "#2a0618");
-  ctx.fillStyle = hg;
-  bossHullPath(w, h);
-  ctx.fill();
-  ctx.shadowBlur = 0;
-  ctx.strokeStyle = "#ff3b5c";
-  ctx.lineWidth = 2;
-  ctx.stroke();
-
-  // Armored spine
-  ctx.fillStyle = "#a82a50";
-  ctx.beginPath();
-  ctx.moveTo(0, h * 0.42);
-  ctx.lineTo(w * 0.09, 0);
-  ctx.lineTo(w * 0.07, -h * 0.4);
-  ctx.lineTo(-w * 0.07, -h * 0.4);
-  ctx.lineTo(-w * 0.09, 0);
-  ctx.closePath();
-  ctx.fill();
-
-  // Glowing red "eye" that pulses
-  ctx.shadowColor = "#ff0000";
-  ctx.shadowBlur = 20;
-  ctx.fillStyle = `rgb(255, ${40 + 60 * Math.sin(b.age * 6)}, 40)`;
-  ctx.beginPath();
-  ctx.ellipse(0, h * 0.05, w * 0.06, h * 0.12, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.shadowBlur = 0;
-
-  // White flash when hit
-  if (b.flash > 0) {
-    ctx.fillStyle = "rgba(255, 255, 255, 0.55)";
-    bossHullPath(w, h);
-    ctx.fill();
-  }
-  ctx.restore();
-
-  // Health bar above the ship: green when full, shifting to red as it drops
+  const left = toScreen(b.x - w / 2, b.y - h / 2, w * 0.12);
+  const right = toScreen(b.x + w / 2, b.y - h / 2, w * 0.12);
+  if (!left.visible) return;
   const frac = b.hp / BOSS_HP;
-  const barW = w;
+  const barW = Math.max(120, right.x - left.x);
   const barH = 9;
-  const barX = b.x - barW / 2;
-  const barY = b.y - h / 2 - 22;
+  const barX = (left.x + right.x) / 2 - barW / 2;
+  const barY = Math.max(left.y, right.y) - 22;
   ctx.save();
   ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
   ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
@@ -2703,36 +2370,8 @@ function drawBoss(b) {
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
   ctx.fillStyle = "#fff";
-  ctx.fillText("BOSS  " + b.hp + " / " + BOSS_HP, b.x, barY - 4);
+  ctx.fillText("BOSS  " + b.hp + " / " + BOSS_HP, barX + barW / 2, barY - 4);
   ctx.restore();
-}
-
-const ITEM_DRAWERS = {
-  rock: drawRock, star: drawStar, alien: drawAlien, fire: drawFire, bomb: drawBomb, enemyBomb: drawBomb,
-};
-
-function drawItem(item) {
-  ITEM_DRAWERS[item.kind](item);
-}
-
-function drawBullets() {
-  ctx.save();
-  ctx.shadowColor = "#6ff";
-  ctx.shadowBlur = 10;
-  ctx.fillStyle = "#bff";
-  for (const b of bullets) ctx.fillRect(b.x - 2, b.y - 9, 4, 18);
-  ctx.restore();
-}
-
-function drawParticles() {
-  for (const p of particles) {
-    ctx.globalAlpha = Math.max(0, p.life / p.maxLife);
-    ctx.fillStyle = p.color;
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  ctx.globalAlpha = 1;
 }
 
 function drawFloatingTexts() {
@@ -2742,7 +2381,8 @@ function drawFloatingTexts() {
   for (const t of floatingTexts) {
     ctx.globalAlpha = Math.min(1, t.life * 2);
     ctx.fillStyle = t.color || "#ffd76a";
-    ctx.fillText(t.text, t.x, t.y);
+    const at = toScreen(t.x, t.y, 30);
+    if (at.visible) ctx.fillText(t.text, at.x, at.y);
   }
   ctx.globalAlpha = 1;
 }
@@ -2924,30 +2564,14 @@ function drawConfetti() {
 }
 
 function draw() {
-  ctx.save();
-
-  // Screen shake: random offset that fades out
-  if (shakeTime > 0) {
-    const s = shakeStrength * (shakeTime / 0.45);
-    ctx.translate((Math.random() - 0.5) * s * 2, (Math.random() - 0.5) * s * 2);
-  }
-
-  drawBackground();
+  if (!renderer3d) return;         // 3D library missing: the "couldn't load" message is showing
+  render3D();                      // the 3D world (on the canvas underneath)
+  ctx.clearRect(0, 0, W, H);       // this canvas only holds the flat HUD on top
 
   if (state !== "start") {
-    for (const item of items) drawItem(item);
-    if (boss) drawBoss(boss);
-    drawBullets();
-    // Ship blinks while it's briefly invulnerable after a hit
-    const blinkOff = player && player.invulnerable > 0 && Math.floor(player.invulnerable * 12) % 2 === 0;
-    if (["playing", "countdown", "bossWarning", "tutorial"].includes(state) && !blinkOff) {
-      drawShip(player.x, player.y, 1, true);
-    }
-    drawParticles();
+    if (boss) drawBossBar(boss);
     drawFloatingTexts();
   }
-
-  ctx.restore();
 
   // Red flash when hit by a bomb
   if (damageFlash > 0) {
@@ -2970,24 +2594,668 @@ function draw() {
 }
 
 /* =====================================================================
-   START-SCREEN LEGEND ICONS (drawn with the same functions as the game)
+   3D VIEW (Three.js)
+   The game rules still run on the same flat W x H map as the 2D game.
+   This section only *shows* that map in 3D:
+     - left / right stays left / right
+     - the top of the map becomes deep space far ahead
+     - the ship's row sits right in front of the camera
+   So everything moves, scores and collides exactly as before.
    ===================================================================== */
-function drawLegendIcons() {
-  const gameCtx = ctx;
-  document.querySelectorAll("canvas[data-icon]").forEach((icon) => {
-    const type = icon.dataset.icon;
-    const item = createItem(type, 0, 0, 0);
-    item.rotation = 0.3;
-    ctx = icon.getContext("2d");
-    ctx.save();
-    // Shrink big items to fit; bombs shift down to leave room for the fuse
-    const scale = type === "bomb" ? 0.75 : Math.min(1, 26 / item.radius);
-    ctx.translate(icon.width / 2, icon.height / 2 + (type === "bomb" ? 6 : 0));
-    ctx.scale(scale, scale);
-    drawItem(item);
-    ctx.restore();
+const has3D = typeof THREE !== "undefined";
+const scene3dCanvas = document.getElementById("scene3d");
+
+// A high camera looking steeply down: items use the whole screen height and shots
+// travel upward, with a gentle 3D depth (far items appear about 3/4 size)
+const CAM_HEIGHT = 1100;      // camera sits this far above...
+const CAM_BACK = 380;         // ...and this far behind the ship
+const CAM_LOOK_AHEAD = 250;   // and looks at a point this far ahead of it
+const DEPTH_STRETCH = 4;      // how much deep space is stretched (bigger = flatter)
+const SHIP_MODEL_SCALE = 1.35;  // looks only; hits still use the game's own sizes
+
+let renderer3d = null, scene3d = null, camera3d = null;
+let worldGroup = null;        // everything that belongs to a game in progress
+let shipMesh = null, starfield = null, sparks = null;
+let depthStretch = 400;       // how strongly far-away space is stretched (set in resize3D)
+let frame3d = 0, last3dTime = performance.now(), shipBank = 0, lastShipX = null;
+const camBase = has3D ? new THREE.Vector3() : null;
+const tex3d = {};             // shared textures (glow, spark, warning sign)
+const tmpV = has3D ? new THREE.Vector3() : null;
+
+/** Game map point (x, y) -> 3D point. `up` lifts it above the play floor. */
+function toWorld(x, y, up = 0, out = new THREE.Vector3()) {
+  const ahead = shipY() - y;   // distance in front of the ship's row
+  // 1:1 near the ship (so hits line up), stretched further out (deep space)
+  const z = ahead > 0 ? -(ahead + (ahead * ahead) / depthStretch) : -ahead;
+  return out.set(x - W / 2, up, z);
+}
+
+/** Game map point -> flat screen position (for HUD text drawn on top). */
+function toScreen(x, y, up = 0) {
+  const v = toWorld(x, y, up, tmpV).project(camera3d);
+  return { x: (v.x + 1) / 2 * W, y: (1 - v.y) / 2 * H, visible: v.z < 1 };
+}
+
+/* ---------- Shared textures and helpers ---------- */
+function canvasTexture(size, paint) {
+  const c = document.createElement("canvas");
+  c.width = c.height = size;
+  paint(c.getContext("2d"), size);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+function makeTextures() {
+  // Soft round glow (tinted per use)
+  tex3d.glow = canvasTexture(128, (g, s) => {
+    const r = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+    r.addColorStop(0, "rgba(255,255,255,1)");
+    r.addColorStop(0.25, "rgba(255,255,255,0.55)");
+    r.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = r;
+    g.fillRect(0, 0, s, s);
   });
-  ctx = gameCtx;
+  // Small bright dot for stars and sparks
+  tex3d.dot = canvasTexture(32, (g, s) => {
+    const r = g.createRadialGradient(s / 2, s / 2, 0, s / 2, s / 2, s / 2);
+    r.addColorStop(0, "rgba(255,255,255,1)");
+    r.addColorStop(0.4, "rgba(255,255,255,0.8)");
+    r.addColorStop(1, "rgba(255,255,255,0)");
+    g.fillStyle = r;
+    g.fillRect(0, 0, s, s);
+  });
+  // Yellow warning sign shown on bombs
+  tex3d.warning = canvasTexture(128, (g, s) => {
+    g.fillStyle = "#ffdd00";
+    g.strokeStyle = "#000";
+    g.lineWidth = 6;
+    g.beginPath();
+    g.moveTo(s / 2, s * 0.12);
+    g.lineTo(s * 0.9, s * 0.86);
+    g.lineTo(s * 0.1, s * 0.86);
+    g.closePath();
+    g.fill();
+    g.stroke();
+    g.fillStyle = "#000";
+    g.font = `bold ${s * 0.5}px sans-serif`;
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText("!", s / 2, s * 0.6);
+  });
+}
+
+/** Additive glowing sprite. Each one gets its own material so it can pulse. */
+function glowSprite(color, size, opacity = 1) {
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: tex3d.glow, color, opacity, transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  }));
+  sprite.scale.set(size, size, 1);
+  return sprite;
+}
+
+const std = (color, extra = {}) => new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.2, ...extra });
+
+/** Mark a geometry or material as shared, so removing one object never frees it. */
+const shared = (thing) => { thing.userData.shared = true; return thing; };
+
+/** Free the shapes and materials an object made for itself (shared ones are kept). */
+function disposeObject(obj) {
+  obj.traverse((o) => {
+    if (o.geometry && !o.geometry.userData.shared) o.geometry.dispose();
+    if (o.material && !o.material.userData.shared) o.material.dispose();
+  });
+}
+
+/* ---------- Your ship ---------- */
+// Same outline as the 2D ship (2D y becomes 3D depth: negative = forward)
+function buildShip() {
+  const ship = new THREE.Group();
+
+  const body = new THREE.Mesh(new THREE.ConeGeometry(9, 46, 12), std(0xe8f0ff, { metalness: 0.5, roughness: 0.3 }));
+  body.rotation.x = -Math.PI / 2;       // tip points forward
+  body.position.set(0, 3, -2);
+  ship.add(body);
+
+  const wingShape = new THREE.Shape();
+  wingShape.moveTo(0, -6);
+  wingShape.lineTo(22, 16);
+  wingShape.lineTo(22, 22);
+  wingShape.lineTo(-22, 22);
+  wingShape.lineTo(-22, 16);
+  wingShape.closePath();
+  const wingGeo = new THREE.ExtrudeGeometry(wingShape, { depth: 3, bevelEnabled: false });
+  wingGeo.rotateX(Math.PI / 2);         // lay flat; 2D y -> depth
+  const wings = new THREE.Mesh(wingGeo, std(0x3a6fd8, { metalness: 0.4, roughness: 0.4 }));
+  wings.position.y = 1.5;
+  ship.add(wings);
+
+  const cockpit = new THREE.Mesh(
+    new THREE.SphereGeometry(4.5, 16, 10),
+    std(0x33ccff, { emissive: 0x1188cc, emissiveIntensity: 0.8, metalness: 0.1, roughness: 0.1 })
+  );
+  cockpit.scale.set(1, 0.8, 1.9);
+  cockpit.position.set(0, 7, -6);
+  ship.add(cockpit);
+
+  // Glowing engine at the back
+  const flame = new THREE.Mesh(new THREE.ConeGeometry(5, 18, 10), new THREE.MeshBasicMaterial({ color: 0xffb347 }));
+  flame.rotation.x = Math.PI / 2;       // points backward
+  flame.position.set(0, 3, 26);
+  ship.add(flame);
+  const engineGlow = glowSprite(0xffa040, 34, 0.9);
+  engineGlow.position.set(0, 3, 22);
+  ship.add(engineGlow);
+
+  ship.userData.flame = flame;
+  ship.userData.engineGlow = engineGlow;
+  ship.scale.setScalar(SHIP_MODEL_SCALE);   // a bit bigger than the 2D ship so it reads well in 3D
+  return ship;
+}
+
+/* ---------- Falling items ---------- */
+// A few lumpy rock shapes per size, reused so nothing new is built mid-game
+const rockShapes = {};
+const rockMaterials = {};
+
+function rockGeometry(radius) {
+  const pool = rockShapes[radius] || (rockShapes[radius] = []);
+  if (pool.length < 6) {
+    const geo = new THREE.IcosahedronGeometry(radius, 1);
+    const pos = geo.attributes.position;
+    const seed = Math.random() * 100;
+    for (let i = 0; i < pos.count; i++) {
+      tmpV.fromBufferAttribute(pos, i).normalize();
+      // Same direction -> same bump, so the faces stay joined
+      const bump = Math.sin(tmpV.x * 3.1 + seed) * Math.cos(tmpV.y * 2.7 + seed * 1.3) * Math.sin(tmpV.z * 3.7 + seed * 0.7);
+      tmpV.multiplyScalar(radius * (0.82 + 0.22 * bump));
+      pos.setXYZ(i, tmpV.x, tmpV.y, tmpV.z);
+    }
+    geo.computeVertexNormals();
+    pool.push(shared(geo));
+    return geo;
+  }
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+function buildRock(item) {
+  const mat = rockMaterials[item.color] ||
+    (rockMaterials[item.color] = shared(std(item.color, { roughness: 0.95, metalness: 0.05, flatShading: true })));
+  const rock = new THREE.Mesh(rockGeometry(item.radius), mat);
+  // Each rock tumbles on its own random axis
+  const axis = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+  const speed = 0.8 + Math.random() * 1.6;
+  rock.userData.animate = (it, dt) => rock.rotateOnAxis(axis, speed * dt);
+  return rock;
+}
+
+const starGeometries = {};
+function buildStar(item) {
+  const r = item.radius;
+  if (!starGeometries[r]) {
+    const shape = new THREE.Shape();
+    for (let i = 0; i < 10; i++) {
+      const a = -Math.PI / 2 + (i * Math.PI) / 5;
+      const rr = i % 2 === 0 ? r : r * 0.45;
+      if (i === 0) shape.moveTo(Math.cos(a) * rr, -Math.sin(a) * rr);
+      else shape.lineTo(Math.cos(a) * rr, -Math.sin(a) * rr);
+    }
+    const geo = new THREE.ExtrudeGeometry(shape, { depth: r * 0.3, bevelEnabled: true, bevelSize: r * 0.08, bevelThickness: r * 0.08, bevelSegments: 2 });
+    geo.center();
+    starGeometries[r] = shared(geo);
+  }
+  const star = new THREE.Group();
+  star.add(new THREE.Mesh(starGeometries[r], std(0xffd84a, { emissive: 0xffa000, emissiveIntensity: 0.6, metalness: 0.6, roughness: 0.3 })));
+  const glow = glowSprite(0xffd84a, r * 4, 0.55);
+  star.add(glow);
+  star.userData.animate = (it, dt) => {
+    star.rotation.y += 2.5 * dt;
+    glow.material.opacity = 0.45 + 0.2 * Math.sin(it.age * 8);
+  };
+  return star;
+}
+
+function buildAlien(item) {
+  const r = item.radius;
+  const ufo = new THREE.Group();
+
+  const disc = new THREE.Mesh(new THREE.SphereGeometry(r, 24, 12), std(0xc8d0dc, { metalness: 0.8, roughness: 0.25 }));
+  disc.scale.set(1, 0.28, 1);
+  ufo.add(disc);
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(r * 0.26, 16, 12), std(0x66ff66, { emissive: 0x115511 }));
+  head.position.y = r * 0.3;
+  ufo.add(head);
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(r * 0.08, 8, 6), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+    eye.scale.set(0.8, 1.3, 0.6);
+    eye.position.set(side * r * 0.11, r * 0.34, r * 0.21);
+    ufo.add(eye);
+  }
+
+  const dome = new THREE.Mesh(
+    new THREE.SphereGeometry(r * 0.55, 20, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+    new THREE.MeshStandardMaterial({ color: 0x96ffc8, transparent: true, opacity: 0.35, roughness: 0.05 })
+  );
+  dome.position.y = r * 0.1;
+  ufo.add(dome);
+
+  // Blinking lights around the rim
+  const lights = [];
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const bulb = new THREE.Mesh(new THREE.SphereGeometry(r * 0.08, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffff66 }));
+    bulb.position.set(Math.cos(a) * r * 0.85, 0, Math.sin(a) * r * 0.85);
+    ufo.add(bulb);
+    lights.push(bulb);
+  }
+  ufo.userData.animate = (it, dt) => {
+    ufo.rotation.y += 1.5 * dt;
+    ufo.rotation.z = Math.sin(it.age * 3) * 0.15;
+    lights.forEach((bulb, i) => bulb.material.color.set((Math.floor(it.age * 6) + i) % 2 ? 0xff55ff : 0xffff66));
+  };
+  return ufo;
+}
+
+function buildFire(item) {
+  const r = item.radius;
+  const fire = new THREE.Group();
+  const core = new THREE.Mesh(new THREE.SphereGeometry(r * 0.8, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffd23f }));
+  fire.add(core);
+  const outer = glowSprite(0xff6a00, r * 4.2, 0.9);
+  const inner = glowSprite(0xfff0b0, r * 2, 0.9);
+  fire.add(outer, inner);
+  fire.userData.animate = (it) => {
+    const flicker = 1 + Math.sin(it.age * 30) * 0.12;
+    outer.scale.set(r * 4.2 * flicker, r * 4.2 * flicker, 1);
+    core.scale.setScalar(flicker);
+  };
+  return fire;
+}
+
+/** Bombs (and the boss's bombs): glowing red pulsing sphere with a warning sign. */
+function buildBomb(item) {
+  const r = item.radius;
+  const bomb = new THREE.Group();
+  const shell = new THREE.Mesh(new THREE.SphereGeometry(r, 20, 14), std(0xb01010, { emissive: 0xff1a1a, emissiveIntensity: 0.6, roughness: 0.35 }));
+  bomb.add(shell);
+
+  const fuse = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, r * 0.5, 6), std(0xcccccc));
+  fuse.position.y = r * 1.1;
+  bomb.add(fuse);
+  const spark = glowSprite(0xffdd33, r * 0.9);
+  spark.position.y = r * 1.4;
+  bomb.add(spark);
+
+  const glow = glowSprite(0xff2020, r * 3.6, 0.7);
+  bomb.add(glow);
+
+  const sign = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex3d.warning, transparent: true }));
+  sign.scale.set(r * 1.1, r * 1.1, 1);
+  sign.position.set(0, r * 0.8, r * 0.75);   // on the front-top of the shell, facing the camera
+  bomb.add(sign);
+
+  bomb.userData.animate = (it) => {
+    const pulse = 0.6 + 0.4 * Math.sin(it.pulse || 0);
+    shell.material.emissiveIntensity = 0.3 + 0.9 * pulse;
+    glow.scale.setScalar(r * (3 + 1.4 * pulse));
+    glow.material.opacity = 0.45 + 0.4 * pulse;
+    spark.material.opacity = Math.random() < 0.5 ? 1 : 0.5;
+  };
+  return bomb;
+}
+
+const ITEM_BUILDERS = { rock: buildRock, star: buildStar, alien: buildAlien, fire: buildFire, bomb: buildBomb, enemyBomb: buildBomb };
+
+function buildItemMesh(item) {
+  return ITEM_BUILDERS[item.kind](item);
+}
+
+/* ---------- Laser shots ---------- */
+let laserGeo = null, laserMat = null, laserGlowMat = null;
+function buildLaser() {
+  if (!laserGeo) {
+    laserGeo = shared(new THREE.CylinderGeometry(2, 2, 34, 6));
+    laserGeo.rotateX(Math.PI / 2);       // along the flight direction
+    laserMat = shared(new THREE.MeshBasicMaterial({ color: 0xbfffff }));
+    laserGlowMat = shared(new THREE.SpriteMaterial({ map: tex3d.glow, color: 0x33ddff, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false }));
+  }
+  const laser = new THREE.Group();
+  laser.add(new THREE.Mesh(laserGeo, laserMat));
+  const glow = new THREE.Sprite(laserGlowMat);
+  glow.scale.set(22, 22, 1);
+  laser.add(glow);
+  return laser;
+}
+
+/* ---------- Boss mothership ---------- */
+function buildBoss(b) {
+  const { w, h } = b;
+  const boss = new THREE.Group();
+
+  // Same outline as the 2D boss; nose points at the player
+  const hull = new THREE.Shape();
+  hull.moveTo(0, h * 0.5);
+  [[0.16, 0.18], [0.5, -0.02], [0.44, -0.32], [0.16, -0.26], [0.1, -0.46],
+   [-0.1, -0.46], [-0.16, -0.26], [-0.44, -0.32], [-0.5, -0.02], [-0.16, 0.18]]
+    .forEach(([px, py]) => hull.lineTo(w * px, h * py));
+  hull.closePath();
+  const hullGeo = new THREE.ExtrudeGeometry(hull, { depth: w * 0.07, bevelEnabled: true, bevelSize: w * 0.012, bevelThickness: w * 0.012, bevelSegments: 2 });
+  hullGeo.rotateX(Math.PI / 2);
+  const hullMat = std(0x7a1438, { emissive: 0x500818, emissiveIntensity: 0.6, metalness: 0.6, roughness: 0.35 });
+  const hullMesh = new THREE.Mesh(hullGeo, hullMat);
+  hullMesh.position.y = w * 0.035;
+  boss.add(hullMesh);
+
+  // Raised armored spine
+  const spine = new THREE.Shape();
+  spine.moveTo(0, h * 0.42);
+  spine.lineTo(w * 0.09, 0);
+  spine.lineTo(w * 0.07, -h * 0.4);
+  spine.lineTo(-w * 0.07, -h * 0.4);
+  spine.lineTo(-w * 0.09, 0);
+  spine.closePath();
+  const spineGeo = new THREE.ExtrudeGeometry(spine, { depth: w * 0.08, bevelEnabled: false });
+  spineGeo.rotateX(Math.PI / 2);
+  const spineMesh = new THREE.Mesh(spineGeo, std(0xa82a50, { metalness: 0.5, roughness: 0.4 }));
+  spineMesh.position.y = w * 0.1;
+  boss.add(spineMesh);
+
+  // Wing cannons
+  for (const side of [-1, 1]) {
+    const cannon = new THREE.Mesh(new THREE.BoxGeometry(w * 0.05, w * 0.05, h * 0.35), std(0x3a3f4a, { metalness: 0.7 }));
+    cannon.position.set(side * w * 0.3, w * 0.02, h * 0.08);
+    boss.add(cannon);
+  }
+
+  // Glowing red eye
+  const eye = new THREE.Mesh(new THREE.SphereGeometry(w * 0.06, 16, 12), new THREE.MeshBasicMaterial({ color: 0xff2a2a }));
+  eye.scale.set(1, 0.7, 1.8);
+  eye.position.set(0, w * 0.11, h * 0.05);
+  boss.add(eye);
+  const eyeGlow = glowSprite(0xff2020, w * 0.4, 0.8);
+  eyeGlow.position.copy(eye.position);
+  boss.add(eyeGlow);
+
+  // Engines at the back
+  const engines = [-0.22, 0, 0.22].map((ex) => {
+    const g = glowSprite(0xffa040, w * 0.22, 0.9);
+    g.position.set(w * ex, w * 0.04, -h * 0.48);
+    boss.add(g);
+    return g;
+  });
+
+  boss.userData.animate = (bb) => {
+    const beat = 0.5 + 0.5 * Math.sin(bb.age * 6);
+    eye.material.color.setRGB(1, 0.15 + 0.25 * beat, 0.15);
+    eyeGlow.material.opacity = 0.5 + 0.4 * beat;
+    engines.forEach((g) => g.scale.setScalar(w * (0.18 + Math.random() * 0.08)));
+    // White flash when hit
+    hullMat.emissive.set(bb.flash > 0 ? 0xffffff : 0x500818);
+    hullMat.emissiveIntensity = bb.flash > 0 ? 0.9 : 0.6;
+  };
+  return boss;
+}
+
+/* ---------- Starfield, nebulas and explosion sparks ---------- */
+const STAR_COUNT = 1800;
+const STAR_FAR = -7000, STAR_NEAR = 900;
+
+function buildBackdrop() {
+  const pos = new Float32Array(STAR_COUNT * 3);
+  for (let i = 0; i < STAR_COUNT; i++) {
+    pos[i * 3] = (Math.random() - 0.5) * 7000;
+    pos[i * 3 + 1] = -3800 + Math.random() * 3500;   // below the play floor (the camera looks down)
+    pos[i * 3 + 2] = STAR_FAR + Math.random() * (STAR_NEAR - STAR_FAR);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  starfield = new THREE.Points(geo, new THREE.PointsMaterial({
+    size: 14, map: tex3d.dot, color: 0xffffff, transparent: true,
+    depthWrite: false, blending: THREE.AdditiveBlending, fog: false,
+  }));
+  scene3d.add(starfield);
+
+  // Faint coloured nebula clouds far away
+  for (const [x, y, z, color, size] of [[-1600, -4200, -2600, 0x7832c8, 9000], [1900, -4200, -400, 0x286ee0, 8000]]) {
+    const cloud = glowSprite(color, size, 0.22);
+    cloud.material.fog = false;
+    cloud.position.set(x, y, z);
+    scene3d.add(cloud);
+  }
+}
+
+const SPARK_MAX = 3000;
+const colorCache = {};
+function buildSparks() {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(SPARK_MAX * 3), 3));
+  geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(SPARK_MAX * 3), 3));
+  return new THREE.Points(geo, new THREE.PointsMaterial({
+    size: 9, map: tex3d.dot, vertexColors: true, transparent: true,
+    depthWrite: false, blending: THREE.AdditiveBlending,
+  }));
+}
+
+/** Copy the game's particles into the 3D spark cloud (adds a little up/down spread). */
+function updateSparks(dt) {
+  const pos = sparks.geometry.attributes.position;
+  const col = sparks.geometry.attributes.color;
+  const n = Math.min(particles.length, SPARK_MAX);
+  for (let i = 0; i < n; i++) {
+    const p = particles[i];
+    if (p.h3 === undefined) {
+      p.h3 = 0;
+      p.vh3 = (Math.random() - 0.5) * 2 * Math.hypot(p.vx, p.vy) * 0.8;
+    }
+    p.h3 += p.vh3 * dt;
+    p.vh3 *= 0.97;
+    toWorld(p.x, p.y, p.h3, tmpV);
+    pos.setXYZ(i, tmpV.x, tmpV.y, tmpV.z);
+    const c = colorCache[p.color] || (colorCache[p.color] = new THREE.Color(p.color));
+    const fade = Math.max(0, p.life / p.maxLife);
+    col.setXYZ(i, c.r * fade, c.g * fade, c.b * fade);
+  }
+  sparks.geometry.setDrawRange(0, n);
+  pos.needsUpdate = true;
+  col.needsUpdate = true;
+}
+
+/* ---------- Setup ---------- */
+function init3D() {
+  if (!has3D) {
+    document.getElementById("no3d").classList.remove("hidden");
+    return;
+  }
+  renderer3d = new THREE.WebGLRenderer({ canvas: scene3dCanvas, antialias: !isTouch, powerPreference: "high-performance" });
+  renderer3d.setClearColor(0x070418, 1);
+  scene3d = new THREE.Scene();
+  scene3d.fog = new THREE.Fog(0x070418, 4500, 9000);   // the far distance fades into space
+  camera3d = new THREE.PerspectiveCamera(55, 1, 5, 12000);
+
+  scene3d.add(new THREE.AmbientLight(0x8890c0, 1.1));
+  const sun = new THREE.DirectionalLight(0xffffff, 2.4);
+  sun.position.set(-300, 700, 500);
+  scene3d.add(sun);
+  const rim = new THREE.DirectionalLight(0x6a8cff, 1.2);
+  rim.position.set(400, 200, -600);
+  scene3d.add(rim);
+
+  makeTextures();
+  buildBackdrop();
+  worldGroup = new THREE.Group();
+  scene3d.add(worldGroup);
+  shipMesh = buildShip();
+  worldGroup.add(shipMesh);
+  sparks = buildSparks();
+  worldGroup.add(sparks);
+}
+
+/** Place the camera so that, at the ship's row, 1 game pixel = 1 screen pixel.
+    That keeps mouse and finger control lined up with the ship exactly as in 2D. */
+function resize3D() {
+  if (!renderer3d) return;
+  renderer3d.setPixelRatio(Math.min(window.devicePixelRatio || 1, isTouch ? 1.5 : 2));
+  renderer3d.setSize(W, H, false);
+  depthStretch = Math.max(250, H * DEPTH_STRETCH);
+
+  camera3d.aspect = W / H;
+  camBase.set(0, CAM_HEIGHT, CAM_BACK);
+  camera3d.position.copy(camBase);
+  camera3d.lookAt(0, 0, -CAM_LOOK_AHEAD);
+  camera3d.clearViewOffset();
+  camera3d.updateMatrixWorld();
+  const shipInCam = new THREE.Vector3(0, 0, 0).applyMatrix4(camera3d.matrixWorldInverse);
+  const depth = -shipInCam.z;
+  camera3d.fov = THREE.MathUtils.radToDeg(2 * Math.atan(H / 2 / depth));
+  // Slide the view so the ship lands on its usual screen row
+  const shipScreenY = H / 2 - shipInCam.y;
+  camera3d.setViewOffset(W, H, 0, shipScreenY - shipY(), W, H);
+  camera3d.updateProjectionMatrix();
+}
+
+/* ---------- Every frame ---------- */
+/** Make a 3D model for each game object that needs one, and move it into place. */
+function syncObjects(list, build, dt) {
+  for (const obj of list) {
+    let mesh = obj._mesh3d;
+    if (!mesh) {
+      mesh = obj._mesh3d = build(obj);
+      mesh.userData.temp = true;
+      worldGroup.add(mesh);
+    }
+    mesh.userData.seen = frame3d;
+    toWorld(obj.x, obj.y, 0, mesh.position);
+    if (mesh.userData.animate) mesh.userData.animate(obj, dt);
+  }
+}
+
+/** Remove models whose game object is gone. */
+function sweepObjects() {
+  for (const mesh of worldGroup.children.slice()) {
+    if (mesh.userData.temp && mesh.userData.seen !== frame3d) {
+      worldGroup.remove(mesh);
+      disposeObject(mesh);
+    }
+  }
+}
+
+function render3D() {
+  if (!renderer3d) return;
+  const now = performance.now();
+  const realDt = Math.min(0.05, (now - last3dTime) / 1000);
+  last3dTime = now;
+  // Animations freeze while the game is paused, like the game itself
+  const dt = paused || rotateHint.classList.contains("show") ? 0 : realDt;
+  frame3d++;
+
+  // Stars stream toward you (faster while playing)
+  const flying = ["playing", "countdown", "tutorial"].includes(state);
+  const starSpeed = (flying ? 900 : 260) * dt;
+  const sp = starfield.geometry.attributes.position;
+  for (let i = 0; i < STAR_COUNT; i++) {
+    let z = sp.getZ(i) + starSpeed;
+    if (z > STAR_NEAR) z -= STAR_NEAR - STAR_FAR;
+    sp.setZ(i, z);
+  }
+  sp.needsUpdate = true;
+
+  // The game world is hidden on the start screen, like in 2D
+  worldGroup.visible = state !== "start";
+  if (worldGroup.visible) {
+    syncObjects(items, buildItemMesh, dt);
+    syncObjects(bullets, buildLaser, dt);
+    syncObjects(boss ? [boss] : [], buildBoss, dt);
+    sweepObjects();
+    updateSparks(dt);
+
+    // Ship: visible while flying, blinks after a hit, banks when it moves
+    const blinkOff = player && player.invulnerable > 0 && Math.floor(player.invulnerable * 12) % 2 === 0;
+    shipMesh.visible = Boolean(player) && ["playing", "countdown", "bossWarning", "tutorial"].includes(state) && !blinkOff;
+    if (player) {
+      toWorld(player.x, player.y, 0, shipMesh.position);
+      if (dt > 0 && lastShipX !== null) {
+        const vx = (player.x - lastShipX) / dt;
+        shipBank += (Math.max(-0.6, Math.min(0.6, -vx * 0.0012)) - shipBank) * Math.min(1, dt * 10);
+      }
+      lastShipX = player.x;
+      shipMesh.rotation.z = shipBank;
+      const flicker = 0.8 + Math.random() * 0.4;
+      shipMesh.userData.flame.scale.set(1, flicker, 1);
+      shipMesh.userData.engineGlow.scale.setScalar(34 * flicker);
+    }
+  }
+
+  // Screen shake moves the camera (the flat HUD stays still)
+  camera3d.position.copy(camBase);
+  if (shakeTime > 0) {
+    const s = shakeStrength * (shakeTime / 0.45);
+    camera3d.position.x += (Math.random() - 0.5) * s * 2;
+    camera3d.position.y += (Math.random() - 0.5) * s * 2;
+  }
+  renderer3d.render(scene3d, camera3d);
+}
+
+/* ---------- 3D pictures for icons (start screen, tutorial, lives, cursor) ---------- */
+let shipIcon = null;   // canvas with a picture of the 3D ship (used for the lives)
+
+function renderIcons3D() {
+  if (!has3D) return;
+  const r = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+  r.setPixelRatio(1);
+  r.setSize(128, 128);
+  const scene = new THREE.Scene();
+  scene.add(new THREE.AmbientLight(0x8890c0, 1.3));
+  const sun = new THREE.DirectionalLight(0xffffff, 2.6);
+  sun.position.set(-300, 700, 500);
+  scene.add(sun);
+  const cam = new THREE.PerspectiveCamera(32, 1, 1, 5000);
+
+  /** Photograph one model into a canvas. `from` is the camera direction. */
+  const snap = (obj, radius, target, from = [0, 0.55, 1]) => {
+    // Glows are huge in the game; shrink them so they fit inside the little picture
+    obj.traverse((o) => {
+      if (o.isSprite && o.material.blending === THREE.AdditiveBlending) o.scale.multiplyScalar(0.45);
+    });
+    scene.add(obj);
+    const dist = (radius * 1.15) / Math.tan(THREE.MathUtils.degToRad(16));
+    cam.position.set(...from).normalize().multiplyScalar(dist);
+    cam.up.set(0, 1, 0);
+    if (from[1] === 1 && from[0] === 0 && from[2] === 0) cam.up.set(0, 0, -1);
+    cam.lookAt(0, 0, 0);
+    r.render(scene, cam);
+    const g = target.getContext("2d");
+    g.clearRect(0, 0, target.width, target.height);
+    g.drawImage(r.domElement, 0, 0, target.width, target.height);
+    scene.remove(obj);
+  };
+
+  // Start-screen legend (the tutorial copies these same pictures)
+  document.querySelectorAll("canvas[data-icon]").forEach((canvasEl) => {
+    const item = createItem(canvasEl.dataset.icon, 0, 0, 0);
+    item.age = 0.2;
+    item.pulse = Math.PI / 2;
+    const model = buildItemMesh(item);
+    if (model.userData.animate) model.userData.animate(item, 0.3);
+    if (item.kind === "rock") model.rotation.set(0.4, 0.6, 0.2);
+    const radius = item.kind === "bomb" ? item.radius * 1.45 : item.kind === "rock" ? Math.max(item.radius, 22) : item.radius * 1.15;
+    snap(model, radius, canvasEl);
+  });
+
+  // The ship from behind (like in the game) for the lives in the HUD
+  shipIcon = document.createElement("canvas");
+  shipIcon.width = shipIcon.height = 96;
+  snap(buildShip(), 30 * SHIP_MODEL_SCALE, shipIcon, [0, 0.8, 1]);
+
+  // The ship from above (nose up) for the mouse cursor on menus
+  const cursor = document.createElement("canvas");
+  cursor.width = cursor.height = 32;
+  snap(buildShip(), 27 * SHIP_MODEL_SCALE, cursor, [0, 1, 0]);
+  document.documentElement.style.setProperty("--plane-cursor", `url("${cursor.toDataURL()}") 16 2, auto`);
+
+  r.dispose();
+  r.forceContextLoss();
 }
 
 /* =====================================================================
@@ -3006,8 +3274,9 @@ function loop(now) {
 }
 
 if (isTouch) document.body.classList.add("touch");
+init3D();
 resize();
-drawLegendIcons();
+renderIcons3D();
 showPilot();
 refreshBoards();
 document.getElementById("startHigh").textContent = highScore;
