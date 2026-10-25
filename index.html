@@ -961,6 +961,10 @@ function saveHighScore(value) {
 const SUPABASE_URL = "https://dpngdlumoyjyldjocmbi.supabase.co";
 const SUPABASE_KEY = "sb_publishable_tSDVs9UZCkhWBP6jwAtmtQ_OSXy419o";   // publishable key: safe to be public
 
+// Supabase table and view (created by supabase/setup.sql)
+const SCORES_TABLE = "galaxydefender_scores";
+const LEADERBOARD_VIEW = "galaxydefender_leaderboard";
+
 const PILOT_KEY = "galaxyDefenderPilot";
 const DEFAULT_PILOT = "Anonymous";   // used when the name box is left empty
 const PILOT_PATTERN = /^[A-Za-z0-9 _-]{1,16}$/;   // same rule as the database
@@ -978,14 +982,14 @@ function supabaseHeaders(extra = {}) {
 
 /** Best score per pilot, highest first. */
 async function fetchTopScores(limit = 10) {
-  const url = `${SUPABASE_URL}/rest/v1/leaderboard?select=username,score,level&order=score.desc,created_at.asc&limit=${limit}`;
+  const url = `${SUPABASE_URL}/rest/v1/${LEADERBOARD_VIEW}?select=username,score,level&order=score.desc,created_at.asc&limit=${limit}`;
   const res = await fetch(url, { headers: supabaseHeaders() });
   if (!res.ok) throw new Error("Leaderboard request failed: " + res.status);
   return res.json();
 }
 
 async function submitScore(username, score, level) {
-  const res = await fetch(`${SUPABASE_URL}/rest/v1/scores`, {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${SCORES_TABLE}`, {
     method: "POST",
     headers: supabaseHeaders({ Prefer: "return=minimal" }),
     body: JSON.stringify({ username, score, level }),
@@ -995,7 +999,7 @@ async function submitScore(username, score, level) {
 
 /** Where a score would place: 1 + number of pilots whose best is higher. */
 async function fetchRank(score) {
-  const url = `${SUPABASE_URL}/rest/v1/leaderboard?select=username&score=gt.${score}`;
+  const url = `${SUPABASE_URL}/rest/v1/${LEADERBOARD_VIEW}?select=username&score=gt.${score}`;
   const res = await fetch(url, { method: "HEAD", headers: supabaseHeaders({ Prefer: "count=exact" }) });
   const total = (res.headers.get("content-range") || "").split("/")[1];
   return res.ok && total !== undefined ? Number(total) + 1 : null;
