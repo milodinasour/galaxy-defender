@@ -27,7 +27,26 @@
     -webkit-tap-highlight-color: transparent;
   }
   canvas { display: block; }
-  /* 3D scene underneath, flat HUD canvas on top (both fill the screen) */
+
+  /* The game lives in a portrait, phone-shaped column centred on the screen.
+     (transform makes every fixed-position element inside it, like menus,
+     buttons and canvases, sit relative to this column instead of the window.) */
+  html { background: #020108; }
+  body { background: #020108; }
+  #stage {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: var(--stage-w, 100vw);
+    transform: translateX(-50%);
+    overflow: hidden;
+    background: #05030f;
+    box-shadow: 0 0 60px rgba(90, 120, 255, 0.18);
+    container-type: inline-size;
+    container-name: stage;
+  }
+  /* 3D scene underneath, flat HUD canvas on top (both fill the stage) */
   #scene3d, #game { position: fixed; inset: 0; width: 100%; height: 100%; }
 
   /* Show hints for the input the player actually has */
@@ -59,13 +78,18 @@
     background: rgba(5, 3, 20, 0.6);
     /* Very short screens: let the menu scroll instead of cutting it off */
     justify-content: safe center;
+    /* keep menus clear of the round buttons in the top corners */
+    padding: 58px 0 12px;
+    box-sizing: border-box;
+    scrollbar-width: none;            /* scrolls if it must, without a visible bar */
     overflow-y: auto;
     touch-action: pan-y;
   }
+  .overlay::-webkit-scrollbar { display: none; }
   .hidden { display: none !important; }   /* wins over any element's own display style */
 
   .title {
-    font-size: clamp(40px, 8vw, 84px);
+    font-size: clamp(32px, 9cqw, 64px);
     font-weight: bold;
     letter-spacing: 4px;
     margin: 0 0 10px;
@@ -194,7 +218,7 @@
   #restartBtn { left: 64px; }
   #exitBtn { left: 116px; }
   body.in-game:not(.tutorial) .game-ctl { display: block; }
-  @media (max-width: 559px) {   /* phones: slightly smaller so the HUD text has room */
+  @container stage (max-width: 559px) {   /* narrow stage: slightly smaller so the HUD text has room */
     .icon-btn { height: 38px; min-width: 38px; border-radius: 19px; }
     #soundBtn, .game-ctl { width: 38px; font-size: 17px; }
     #restartBtn { left: 56px; }
@@ -204,7 +228,7 @@
   /* "Are you sure?" box shown while the game is paused */
   #confirmScreen { z-index: 7; background: rgba(5, 3, 20, 0.75); }
   .confirm-box {
-    width: min(360px, 88vw);
+    width: min(360px, 88cqw);
     padding: 22px 20px 18px;
     border: 2px solid rgba(120, 170, 255, 0.6);
     border-radius: 16px;
@@ -268,7 +292,7 @@
   }
   .pilot-msg { color: #ff8080; font-size: 14px; min-height: 18px; margin-top: 4px; }
 
-  /* Menu layout: stacked on phones; on wide screens the Top 5 sits to the right */
+  /* Menu layout: one column (the game is always portrait) */
   .menu-layout {
     display: grid;
     grid-template-columns: auto;
@@ -276,20 +300,10 @@
     align-items: center;
   }
   .menu-top, .menu-bottom { display: flex; flex-direction: column; align-items: center; }
-  @media (min-width: 820px) {
-    .menu-layout {
-      grid-template-columns: auto 320px;
-      grid-template-areas: "top board" "bottom board";
-      column-gap: 48px;
-    }
-    .menu-top { grid-area: top; }
-    .menu-bottom { grid-area: bottom; }
-    .mini-board { grid-area: board; }
-  }
 
   /* Global Top 5 panel */
   .mini-board {
-    width: min(340px, 92vw);
+    width: min(340px, 92cqw);
     margin: 14px 0 6px;
     padding: 10px 10px 6px;
     border: 2px solid rgba(120, 170, 255, 0.45);
@@ -319,22 +333,27 @@
   .lb-status.ok { color: #7dff6a; }
   .lb-status.err { color: #ff8080; }
 
-  /* Smaller phones: tighten the start screen so everything fits */
-  @media (max-width: 480px), (max-height: 700px) {
+  /* Phone-sized menus (the stage is always portrait) */
+  @container stage (min-width: 0px) {
     .big-btn { min-height: 62px; font-size: 26px; margin-top: 12px; }
     .big-btn.secondary { min-height: 48px; margin-top: 10px; }
     .stats { margin: 8px 0 10px; }
-    .title { font-size: min(9vw, 56px); letter-spacing: 2px; padding: 0 10px; }
+    .title { font-size: min(9cqw, 56px); letter-spacing: 2px; padding: 0 10px; }
     .subtitle { font-size: 17px; }
-    .legend { gap: 2px 8px; margin-top: 14px; max-width: 340px; }
+    .legend { gap: 2px 6px; margin-top: 14px; max-width: 96cqw; }   /* one row when there's room */
     .legend canvas { width: 48px; height: 48px; }
     .help { font-size: 13px; line-height: 1.6; padding: 0 16px; }
     .stats { font-size: 21px; }
     .new-best { font-size: 24px; }
   }
+  /* Short screens: drop the help text, then the item legend (HOW TO PLAY covers both),
+     so START, the pilot name and the Top 5 always fit without scrolling */
+  @media (max-height: 830px) { .help { display: none; } }
+  @media (max-height: 700px) { .legend { display: none; } }
 </style>
 </head>
 <body>
+<div id="stage">
 
 <canvas id="scene3d"></canvas>   <!-- the 3D world (Three.js) -->
 <canvas id="game"></canvas>      <!-- flat HUD drawn on top -->
@@ -433,7 +452,6 @@
 <button id="fireBtn" aria-label="Fire">FIRE</button>
 
 <!-- Shown when a phone is held sideways -->
-<div id="rotateHint">📱 Please turn your phone upright<br>to play Galaxy Defender</div>
 
 <!-- Game over screen -->
 <div id="gameOverScreen" class="overlay hidden">
@@ -455,6 +473,11 @@
     <div class="mini-board" data-board></div>
   </div>
 </div>
+
+</div>  <!-- /stage -->
+
+<!-- Shown when a phone or tablet is held sideways (covers the whole window) -->
+<div id="rotateHint">📱 Please turn your phone upright<br>to play Galaxy Defender</div>
 
 <!-- Three.js (3D graphics library), pinned version -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
@@ -553,9 +576,14 @@ function shipY() {
   return H - (isTouch ? 150 : 70);
 }
 
+// The game is always portrait: on wide screens it becomes a phone-shaped column
+const STAGE_RATIO = 9 / 16;      // widest the stage can be, relative to its height
+const STAGE_MAX_WIDTH = 480;     // and never wider than a large phone
+
 function resize() {
-  W = window.innerWidth;
   H = window.innerHeight;
+  W = Math.min(window.innerWidth, Math.round(H * STAGE_RATIO), STAGE_MAX_WIDTH);
+  document.documentElement.style.setProperty("--stage-w", W + "px");
   for (const [c, c2d] of [[canvas, ctx], [fxCanvas, fxCtx]]) {
     c.width = Math.round(W * DPR);
     c.height = Math.round(H * DPR);
@@ -565,8 +593,10 @@ function resize() {
   }
   if (player) player.y = shipY();
   resize3D();
-  // Phones held sideways get a "turn upright" message and the game pauses
-  rotateHint.classList.toggle("show", isTouch && W > H && H < 500);
+  // Phones and tablets held sideways get a "turn upright" message and the game pauses
+  // (touch-only devices; a touchscreen laptop with a trackpad can still play sideways)
+  const phoneOrTablet = isTouch && !window.matchMedia("(any-pointer: fine)").matches;
+  rotateHint.classList.toggle("show", phoneOrTablet && window.innerWidth > window.innerHeight);
 }
 window.addEventListener("resize", resize);
 window.addEventListener("orientationchange", () => setTimeout(resize, 200));
@@ -1163,7 +1193,7 @@ window.addEventListener("keydown", (e) => {
 window.addEventListener("keyup", (e) => { keys[e.code] = false; });
 
 canvas.addEventListener("mousemove", (e) => {
-  mouse.x = e.clientX;
+  mouse.x = e.clientX - canvas.getBoundingClientRect().left;   // relative to the stage
   mouse.active = true;
 });
 canvas.addEventListener("mousedown", () => {
@@ -2182,7 +2212,7 @@ function drawTutorialPanel() {
 
 /** Size the start screen shows its item pictures at (matches the CSS: 48px on small screens). */
 function legendIconSize() {
-  return window.matchMedia("(max-width: 480px), (max-height: 700px)").matches ? 48 : 64;
+  return 48;   // the start-screen pictures are shown at 48px (the stage is always phone-sized)
 }
 
 /** Split text into lines that fit within maxWidth (using the current font). */
