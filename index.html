@@ -187,6 +187,33 @@
   /* While playing the mouse cursor is hidden, but show it over these buttons */
   body.in-game .icon-btn { cursor: pointer; }
 
+  /* Restart / Exit buttons beside the sound button, only during a real game */
+  .game-ctl { display: none; font-size: 20px; padding: 0; width: 44px; }
+  #restartBtn { left: 64px; }
+  #exitBtn { left: 116px; }
+  body.in-game:not(.tutorial) .game-ctl { display: block; }
+  @media (max-width: 559px) {   /* phones: slightly smaller so the HUD text has room */
+    .icon-btn { height: 38px; min-width: 38px; border-radius: 19px; }
+    #soundBtn, .game-ctl { width: 38px; font-size: 17px; }
+    #restartBtn { left: 56px; }
+    #exitBtn { left: 100px; }
+  }
+
+  /* "Are you sure?" box shown while the game is paused */
+  #confirmScreen { z-index: 7; background: rgba(5, 3, 20, 0.75); }
+  .confirm-box {
+    width: min(360px, 88vw);
+    padding: 22px 20px 18px;
+    border: 2px solid rgba(120, 170, 255, 0.6);
+    border-radius: 16px;
+    background: rgba(10, 20, 50, 0.95);
+    box-sizing: border-box;
+  }
+  .confirm-box h2 { margin: 0 0 6px; font-size: 28px; }
+  .confirm-box p { margin: 0 0 6px; color: #bcd; font-size: 16px; }
+  .confirm-btns { display: flex; gap: 12px; justify-content: center; }
+  .confirm-btns .big-btn { min-width: 120px; font-size: 22px; min-height: 56px; padding: 10px 20px; }
+
   /* Smaller secondary button (HOW TO PLAY, BACK TO MENU) */
   .big-btn.secondary {
     font-size: 20px;
@@ -377,6 +404,22 @@
 <button id="soundBtn" class="icon-btn" aria-label="Sound on/off" title="Sound on/off (M)">🔊</button>
 <button id="skipTutorial" class="icon-btn" title="Skip tutorial (Esc)">SKIP ✕</button>
 
+<!-- During a game: restart and exit (both ask first) -->
+<button id="restartBtn" class="icon-btn game-ctl" aria-label="Restart game" title="Restart game">↻</button>
+<button id="exitBtn" class="icon-btn game-ctl" aria-label="Exit to menu" title="Exit to menu (Esc)">✕</button>
+
+<!-- Confirmation; the game is paused while this is open -->
+<div id="confirmScreen" class="overlay hidden">
+  <div class="confirm-box">
+    <h2 id="confirmTitle">Restart game?</h2>
+    <p>The game is paused. Your current score won't be saved.</p>
+    <div class="confirm-btns">
+      <button id="confirmYes" class="big-btn">YES</button>
+      <button id="confirmNo" class="big-btn secondary">NO</button>
+    </div>
+  </div>
+</div>
+
 <!-- Touch-screen fire button -->
 <button id="fireBtn" aria-label="Fire">FIRE</button>
 
@@ -530,7 +573,8 @@ document.documentElement.style.setProperty(
 
 /** Hide the cursor during the countdown and gameplay, show the plane otherwise. */
 function updateCursor() {
-  document.body.classList.toggle("in-game", ["countdown", "playing", "bossWarning", "tutorial"].includes(state));
+  // (while the confirm box is open the cursor comes back so you can click YES / NO)
+  document.body.classList.toggle("in-game", ["countdown", "playing", "bossWarning", "tutorial"].includes(state) && !paused);
   document.body.classList.toggle("tutorial", state === "tutorial");
 }
 
@@ -1078,6 +1122,17 @@ window.addEventListener("pointerdown", unlockAudio);
 window.addEventListener("keydown", (e) => {
   // Typing a pilot name: let the text box have the keys
   if (e.target instanceof HTMLInputElement) return;
+  // Confirm box open: Enter = yes, Esc = no, nothing else reaches the game
+  if (paused) {
+    if (e.code === "Enter" || e.code === "NumpadEnter") closeConfirm(true);
+    if (e.code === "Escape") closeConfirm(false);
+    e.preventDefault();
+    return;
+  }
+  if (e.code === "Escape" && ["countdown", "playing", "bossWarning"].includes(state)) {
+    askConfirm("exit");
+    return;
+  }
   keys[e.code] = true;
   unlockAudio();
   if (e.code === "KeyM") toggleMute();
@@ -1117,6 +1172,59 @@ document.getElementById("tutorialBackBtn").addEventListener("click", () => {
   showStartScreen();
 });
 document.getElementById("skipTutorial").addEventListener("click", () => exitTutorial(true));
+
+/* ---------- Restart / Exit during a game (with confirmation) ---------- */
+let paused = false;          // true while the confirm box is open
+let confirmAction = null;    // "restart" | "exit"
+const confirmScreen = document.getElementById("confirmScreen");
+
+function askConfirm(action) {
+  if (!["countdown", "playing", "bossWarning"].includes(state)) return;
+  paused = true;
+  confirmAction = action;
+  document.getElementById("confirmTitle").textContent = action === "restart" ? "Restart game?" : "Exit to menu?";
+  confirmScreen.classList.remove("hidden");
+  // Let go of any held controls so the ship doesn't keep firing after resuming
+  for (const k in keys) keys[k] = false;
+  mouse.down = false;
+  mouse.pendingShot = false;
+  setFire(false);
+  updateCursor();
+}
+
+function closeConfirm(yes) {
+  const action = confirmAction;
+  confirmScreen.classList.add("hidden");
+  paused = false;
+  confirmAction = null;
+  updateCursor();
+  if (!yes) return;           // NO: carry on exactly where you were
+  if (action === "restart") startGame();
+  else exitToMenu();
+}
+
+/** Leave the current game without saving it and go back to the start screen. */
+function exitToMenu() {
+  runId++;                    // cancel anything still scheduled for this game
+  state = "start";
+  boss = null;
+  danger = 0;
+  items = [];
+  bullets = [];
+  bannerTime = 0;
+  updateCursor();
+  music.play("menu");
+  showStartScreen();
+}
+
+for (const [id, action] of [["restartBtn", "restart"], ["exitBtn", "exit"]]) {
+  document.getElementById(id).addEventListener("click", (e) => {
+    e.currentTarget.blur();   // so Space keeps shooting instead of re-clicking it
+    askConfirm(action);
+  });
+}
+document.getElementById("confirmYes").addEventListener("click", () => closeConfirm(true));
+document.getElementById("confirmNo").addEventListener("click", () => closeConfirm(false));
 document.getElementById("playAgain").addEventListener("click", () => tryStartGame());
 
 /* ---------- Touch controls ----------
@@ -2655,17 +2763,23 @@ function drawHUD() {
   ctx.fillStyle = celebrated ? "#ffe14d" : "#9ab";
   ctx.fillText("BEST " + Math.max(highScore, score), 20, 90);
 
-  // Center: level and countdown timer
+  // Center: level and boss timer. On narrow screens, centre them in the gap between
+  // the top-left buttons and the lives so they never overlap (and shrink if needed).
+  const narrow = W < 560;
+  const gapLeft = narrow ? 140 : 0;
+  const gapRight = narrow ? W - 120 : W;
+  const centerX = (gapLeft + gapRight) / 2;
+  const maxTextW = gapRight - gapLeft - 8;
   ctx.textAlign = "center";
   ctx.font = "bold 20px 'Trebuchet MS', sans-serif";
   ctx.fillStyle = "#9cf";
-  ctx.fillText("LEVEL " + level + (testMode ? " (TEST)" : ""), W / 2, 12);
+  ctx.fillText("LEVEL " + level + (testMode ? " (TEST)" : ""), centerX, 12, maxTextW);
   // Levels still change on a timer, but only the boss fight shows its countdown
   if (boss) {
     const bossSecs = Math.max(0, Math.ceil(bossTimeLeft));
     ctx.font = "bold 24px 'Trebuchet MS', sans-serif";
     ctx.fillStyle = "#ff5050";
-    ctx.fillText("BOSS 0:" + String(bossSecs).padStart(2, "0"), W / 2, 36);
+    ctx.fillText("BOSS 0:" + String(bossSecs).padStart(2, "0"), centerX, 36, maxTextW);
   }
 
   // Right: lives as ship icons
@@ -2885,7 +2999,8 @@ function loop(now) {
   // Clamp dt so a background tab doesn't cause a huge jump
   const dt = Math.min(0.05, (now - lastTime) / 1000);
   lastTime = now;
-  if (!rotateHint.classList.contains("show")) update(dt);   // paused while phone is sideways
+  // Paused while the phone is sideways or the restart/exit confirm box is open
+  if (!rotateHint.classList.contains("show") && !paused) update(dt);
   draw();
   requestAnimationFrame(loop);
 }
