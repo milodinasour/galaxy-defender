@@ -2575,9 +2575,12 @@ function draw() {
 const has3D = typeof THREE !== "undefined";
 const scene3dCanvas = document.getElementById("scene3d");
 
-const CAM_HEIGHT = 260;       // camera sits this far above...
-const CAM_BACK = 600;         // ...and this far behind the ship
-const CAM_LOOK_AHEAD = 500;   // and looks at a point this far ahead of it
+// A high camera looking steeply down: items use the whole screen height and shots
+// travel upward, with a gentle 3D depth (far items appear about 3/4 size)
+const CAM_HEIGHT = 1100;      // camera sits this far above...
+const CAM_BACK = 380;         // ...and this far behind the ship
+const CAM_LOOK_AHEAD = 250;   // and looks at a point this far ahead of it
+const DEPTH_STRETCH = 4;      // how much deep space is stretched (bigger = flatter)
 const SHIP_MODEL_SCALE = 1.35;  // looks only; hits still use the game's own sizes
 
 let renderer3d = null, scene3d = null, camera3d = null;
@@ -2860,7 +2863,7 @@ function buildBomb(item) {
 
   const sign = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex3d.warning, transparent: true }));
   sign.scale.set(r * 1.1, r * 1.1, 1);
-  sign.position.set(0, r * 0.1, r * 1.05);   // just in front of the shell, facing you
+  sign.position.set(0, r * 0.8, r * 0.75);   // on the front-top of the shell, facing the camera
   bomb.add(sign);
 
   bomb.userData.animate = (it) => {
@@ -2972,8 +2975,8 @@ const STAR_FAR = -7000, STAR_NEAR = 900;
 function buildBackdrop() {
   const pos = new Float32Array(STAR_COUNT * 3);
   for (let i = 0; i < STAR_COUNT; i++) {
-    pos[i * 3] = (Math.random() - 0.5) * 6000;
-    pos[i * 3 + 1] = -900 + Math.random() * 3200;
+    pos[i * 3] = (Math.random() - 0.5) * 7000;
+    pos[i * 3 + 1] = -3800 + Math.random() * 3500;   // below the play floor (the camera looks down)
     pos[i * 3 + 2] = STAR_FAR + Math.random() * (STAR_NEAR - STAR_FAR);
   }
   const geo = new THREE.BufferGeometry();
@@ -2985,7 +2988,7 @@ function buildBackdrop() {
   scene3d.add(starfield);
 
   // Faint coloured nebula clouds far away
-  for (const [x, y, z, color, size] of [[-1800, 1100, -7500, 0x7832c8, 9000], [2200, 400, -7000, 0x286ee0, 8000]]) {
+  for (const [x, y, z, color, size] of [[-1600, -4200, -2600, 0x7832c8, 9000], [1900, -4200, -400, 0x286ee0, 8000]]) {
     const cloud = glowSprite(color, size, 0.22);
     cloud.material.fog = false;
     cloud.position.set(x, y, z);
@@ -3038,7 +3041,7 @@ function init3D() {
   renderer3d = new THREE.WebGLRenderer({ canvas: scene3dCanvas, antialias: !isTouch, powerPreference: "high-performance" });
   renderer3d.setClearColor(0x070418, 1);
   scene3d = new THREE.Scene();
-  scene3d.fog = new THREE.Fog(0x070418, 3200, 6500);   // the far distance fades into space
+  scene3d.fog = new THREE.Fog(0x070418, 4500, 9000);   // the far distance fades into space
   camera3d = new THREE.PerspectiveCamera(55, 1, 5, 12000);
 
   scene3d.add(new THREE.AmbientLight(0x8890c0, 1.1));
@@ -3065,7 +3068,7 @@ function resize3D() {
   if (!renderer3d) return;
   renderer3d.setPixelRatio(Math.min(window.devicePixelRatio || 1, isTouch ? 1.5 : 2));
   renderer3d.setSize(W, H, false);
-  depthStretch = Math.max(250, H * 0.45);
+  depthStretch = Math.max(250, H * DEPTH_STRETCH);
 
   camera3d.aspect = W / H;
   camBase.set(0, CAM_HEIGHT, CAM_BACK);
