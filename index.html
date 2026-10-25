@@ -1349,14 +1349,17 @@ function updateBossWarning(dt) {
 function spawnBoss() {
   const w = Math.min(220, W * 0.5);
   const h = w * 0.62;
-  const entryTime = (h * 0.55 + h / 2) / BOSS_ENTRY_SPEED;   // quick fly-in at the start
+  // Quick fly-in until its health bar sits just below the HUD's boss timer
+  const entryY = h / 2 + 105;
+  const entryTime = (entryY + h / 2) / BOSS_ENTRY_SPEED;
   boss = {
     x: W / 2,
     y: -h / 2,
     w, h,
     hp: BOSS_HP,
     // After a quick entrance it creeps down so it reaches the bottom as the 30s run out
-    vy: (H + h / 2 - h * 0.55) / (BOSS_DURATION - entryTime),
+    entryY,
+    vy: (H + h / 2 - entryY) / (BOSS_DURATION - entryTime),
     sideSpeed: Math.min(160, W * 0.4),
     targetX: W / 2,
     retarget: 0,
@@ -1389,7 +1392,7 @@ function updateBoss(dt) {
   bossTimeLeft -= dt;
 
   // Fly in quickly, then creep down slowly
-  const entering = boss.y < boss.h * 0.55;
+  const entering = boss.y < boss.entryY;
   boss.y += (entering ? BOSS_ENTRY_SPEED : boss.vy) * dt;
 
   // Drift randomly left and right
@@ -2320,17 +2323,12 @@ function drawHUD() {
   ctx.font = "bold 20px 'Trebuchet MS', sans-serif";
   ctx.fillStyle = "#9cf";
   ctx.fillText("LEVEL " + level + (testMode ? " (TEST)" : ""), W / 2, 12);
+  // Levels still change on a timer, but only the boss fight shows its countdown
   if (boss) {
-    // During the boss fight the level clock is paused; show the fight's own clock
     const bossSecs = Math.max(0, Math.ceil(bossTimeLeft));
     ctx.font = "bold 24px 'Trebuchet MS', sans-serif";
     ctx.fillStyle = "#ff5050";
     ctx.fillText("BOSS 0:" + String(bossSecs).padStart(2, "0"), W / 2, 36);
-  } else {
-    const secs = Math.max(0, Math.ceil(timeLeft));
-    ctx.font = "bold 26px 'Trebuchet MS', sans-serif";
-    ctx.fillStyle = secs <= 5 ? "#ff7070" : "#fff";
-    ctx.fillText("0:" + String(secs).padStart(2, "0"), W / 2, 36);
   }
 
   // Right: lives as ship icons
