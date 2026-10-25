@@ -348,7 +348,7 @@
            This box moves to the Game Over screen when that screen is showing. -->
       <div id="pilotBox" class="pilot-box">
         <form id="pilotForm" class="pilot-form">
-          <input id="pilotInput" maxlength="16" placeholder="Enter pilot name"
+          <input id="pilotInput" maxlength="16" placeholder="Pilot name (optional)"
                  autocomplete="nickname" autocapitalize="off" spellcheck="false" enterkeyhint="done">
           <button type="submit" class="small-btn">SAVE</button>
         </form>
@@ -920,6 +920,7 @@ const SUPABASE_URL = "https://dpngdlumoyjyldjocmbi.supabase.co";
 const SUPABASE_KEY = "sb_publishable_tSDVs9UZCkhWBP6jwAtmtQ_OSXy419o";   // publishable key: safe to be public
 
 const PILOT_KEY = "galaxyDefenderPilot";
+const DEFAULT_PILOT = "Anonymous";   // used when the name box is left empty
 const PILOT_PATTERN = /^[A-Za-z0-9 _-]{1,16}$/;   // same rule as the database
 let pilotName = "";
 try { pilotName = localStorage.getItem(PILOT_KEY) || ""; } catch (e) { /* storage blocked */ }
@@ -976,7 +977,8 @@ function showPilot() {
 
 /** Save the name typed in the box. Returns false (with a hint) if it isn't allowed. */
 function savePilotFromInput() {
-  const name = pilotInput.value.trim().replace(/\s+/g, " ");
+  // Left empty: play as "Anonymous" (not remembered, so the box is offered again next visit)
+  const name = pilotInput.value.trim().replace(/\s+/g, " ") || DEFAULT_PILOT;
   if (!PILOT_PATTERN.test(name)) {
     pilotMsg.textContent = "Use 1–16 letters, numbers, spaces, _ or -";
     pilotInput.focus();
@@ -984,7 +986,10 @@ function savePilotFromInput() {
   }
   pilotName = name;
   editingPilot = false;
-  try { localStorage.setItem(PILOT_KEY, name); } catch (e) { /* storage blocked */ }
+  try {
+    if (name === DEFAULT_PILOT) localStorage.removeItem(PILOT_KEY);
+    else localStorage.setItem(PILOT_KEY, name);
+  } catch (e) { /* storage blocked */ }
   pilotInput.blur();
   showPilot();
   return true;
@@ -1003,16 +1008,11 @@ document.getElementById("changePilot").addEventListener("click", () => {
   pilotInput.select();
 });
 
-/** START needs a pilot name first (so the score can go on the leaderboard). */
+/** Start a game with the name in the box (an empty box plays as "Anonymous"). */
 function tryStartGame() {
   // A name typed but not saved yet counts: save it on the way in
   const formOpen = !pilotForm.classList.contains("hidden");
-  if (formOpen && pilotInput.value.trim() && !savePilotFromInput()) return;
-  if (!pilotName) {
-    pilotMsg.textContent = "Enter your pilot name first";
-    pilotInput.focus();
-    return;
-  }
+  if (formOpen && !savePilotFromInput()) return;
   editingPilot = false;
   showPilot();
   startGame();
