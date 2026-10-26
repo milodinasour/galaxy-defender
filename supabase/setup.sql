@@ -29,15 +29,8 @@ create policy "Anyone can add a score"
 
 grant select, insert on public.galaxydefender_scores to anon, authenticated;
 
--- 3. The leaderboard: each pilot's best score (names compared ignoring case).
-create or replace view public.galaxydefender_leaderboard
-  with (security_invoker = true) as
-select distinct on (lower(username))
-  username, score, level, created_at
-from public.galaxydefender_scores
-order by lower(username), score desc, created_at asc;
-
-grant select on public.galaxydefender_leaderboard to anon, authenticated;
+-- 3. The leaderboard is simply the highest rows in galaxydefender_scores
+--    (the game reads the table directly, so a pilot can appear more than once).
 
 -- 4. Copy scores from the old "scores" table (only if it exists and the new
 --    table is still empty, so running this twice never duplicates anything).

@@ -520,7 +520,7 @@ const BOMB_RADIUS = 20;
 
 // Boss fight (level 5 only)
 const BOSS_LEVEL          = 5;
-const BOSS_HP             = 50;   // hits needed to destroy it
+const BOSS_HP             = 80;   // hits needed to destroy it
 const BOSS_POINTS         = 800;
 const BOSS_CRASH_PENALTY  = 300;  // points lost when the ship touches the boss
 const BOSS_DURATION       = 30;   // extra seconds, on top of the level's own time
@@ -537,6 +537,7 @@ const EXPLOSION_COLORS = {
   alien: ["#e0ffe0", "#b6ff9a", "#66ff66", "#2fa84f"],
   fire:  ["#fff3b0", "#ffb347", "#ff5a1f", "#ff2a00"],
   bomb:  ["#ffffff", "#ff4040", "#ff9a3c", "#ffdd55"],
+  enemyBomb: ["#ffffff", "#e080ff", "#b040ff", "#ff40a0"],   // alien attackers
   boss:  ["#ffffff", "#fff3b0", "#ffb347", "#ff4040", "#a01040"],
 };
 
@@ -961,9 +962,8 @@ function saveHighScore(value) {
 const SUPABASE_URL = "https://dpngdlumoyjyldjocmbi.supabase.co";
 const SUPABASE_KEY = "sb_publishable_tSDVs9UZCkhWBP6jwAtmtQ_OSXy419o";   // publishable key: safe to be public
 
-// Supabase table and view (created by supabase/setup.sql)
+// Supabase table (created by supabase/setup.sql)
 const SCORES_TABLE = "galaxydefender_scores";
-const LEADERBOARD_VIEW = "galaxydefender_leaderboard";
 
 const PILOT_KEY = "galaxyDefenderPilot";
 const DEFAULT_PILOT = "Anonymous";   // used when the name box is left empty
@@ -980,9 +980,9 @@ function supabaseHeaders(extra = {}) {
   return headers;
 }
 
-/** Best score per pilot, highest first. */
+/** The highest scores, highest first (the same pilot can appear more than once). */
 async function fetchTopScores(limit = 10) {
-  const url = `${SUPABASE_URL}/rest/v1/${LEADERBOARD_VIEW}?select=username,score,level&order=score.desc,created_at.asc&limit=${limit}`;
+  const url = `${SUPABASE_URL}/rest/v1/${SCORES_TABLE}?select=username,score,level&order=score.desc,created_at.asc&limit=${limit}`;
   const res = await fetch(url, { headers: supabaseHeaders() });
   if (!res.ok) throw new Error("Leaderboard request failed: " + res.status);
   return res.json();
@@ -997,9 +997,9 @@ async function submitScore(username, score, level) {
   if (!res.ok) throw new Error("Saving score failed: " + res.status);
 }
 
-/** Where a score would place: 1 + number of pilots whose best is higher. */
+/** Where a score places: 1 + number of saved scores that are higher. */
 async function fetchRank(score) {
-  const url = `${SUPABASE_URL}/rest/v1/${LEADERBOARD_VIEW}?select=username&score=gt.${score}`;
+  const url = `${SUPABASE_URL}/rest/v1/${SCORES_TABLE}?select=id&score=gt.${score}`;
   const res = await fetch(url, { method: "HEAD", headers: supabaseHeaders({ Prefer: "count=exact" }) });
   const total = (res.headers.get("content-range") || "").split("/")[1];
   return res.ok && total !== undefined ? Number(total) + 1 : null;
@@ -1589,9 +1589,7 @@ function pickTargetType() {
 
 function spawnItem() {
   const settings = levelSettings(level);
-  // No normal bombs during the boss fight; only the boss drops bombs then
-  const bombChance = boss ? 0 : settings.bombChance;
-  const type = Math.random() < bombChance ? "bomb" : pickTargetType();
+  const type = Math.random() < settings.bombChance ? "bomb" : pickTargetType();
   const radius = type === "bomb" ? BOMB_RADIUS : TARGETS[type].radius;
   // Aliens need extra side room for their zig-zag
   const margin = radius + (type === "alien" ? 70 : 0);
@@ -1717,8 +1715,8 @@ function handleCollisions() {
       if (item.kind === "bomb") {
         hitBomb(item);
       } else if (item.kind === "enemyBomb") {
-        // Shooting the boss's bombs is safe: they just pop
-        spawnExplosion(item.x, item.y, EXPLOSION_COLORS.bomb, 12, 160);
+        // Shooting the boss's alien attackers is safe: they just burst
+        spawnExplosion(item.x, item.y, EXPLOSION_COLORS.enemyBomb, 16, 180);
         sfx.bossHit();
       } else {
         destroyTarget(item);
@@ -1838,12 +1836,6 @@ function spawnBoss() {
   bossTimeLeft = BOSS_DURATION;
   bossLives = BOSS_LIVES;
   heartbeatTimer = 0;
-
-  // Normal bombs still on screen pop: during the fight every bomb is the boss's
-  for (const item of items) {
-    if (item.kind === "bomb") spawnExplosion(item.x, item.y, EXPLOSION_COLORS.bomb, 12, 140);
-  }
-  items = items.filter((item) => item.kind !== "bomb");
 }
 
 /** Is the point (px, py) inside the boss's oval, grown by `pad` pixels? */
@@ -1873,14 +1865,14 @@ function updateBoss(dt) {
   const step = boss.sideSpeed * dt;
   boss.x += Math.max(-step, Math.min(step, boss.targetX - boss.x));
 
-  // Drop bombs straight down
+  // Launch alien attackers straight down (its "alien army")
   if (!entering) {
     boss.bombTimer -= dt;
     if (boss.bombTimer <= 0) {
-      // Looks like a normal bomb, but uses the boss-fight rules
-      const bomb = createItem("bomb", boss.x + (Math.random() - 0.5) * boss.w * 0.4, boss.y + boss.h / 2, 260 + Math.random() * 60);
-      bomb.kind = "enemyBomb";
-      items.push(bomb);
+      // Same size and rules as before: touching one costs a boss life, shooting it is safe
+      const attacker = createItem("bomb", boss.x + (Math.random() - 0.5) * boss.w * 0.4, boss.y + boss.h / 2, 260 + Math.random() * 60);
+      attacker.kind = "enemyBomb";
+      items.push(attacker);
       boss.bombTimer = 1.0 + Math.random() * 0.9;
     }
   }
@@ -2910,7 +2902,64 @@ function buildBomb(item) {
   return bomb;
 }
 
-const ITEM_BUILDERS = { rock: buildRock, star: buildStar, alien: buildAlien, fire: buildFire, bomb: buildBomb, enemyBomb: buildBomb };
+/** The boss's alien attackers: a hostile purple fighter with red spikes and angry red eyes
+    (deliberately unlike the friendly green 40-point saucer). */
+function buildInvader(item) {
+  const r = item.radius;
+  const ship = new THREE.Group();
+
+  const hull = new THREE.Mesh(
+    new THREE.CylinderGeometry(r, r * 0.55, r * 0.34, 8),
+    std(0x9a40d8, { emissive: 0x5a1490, emissiveIntensity: 0.9, metalness: 0.5, roughness: 0.35, flatShading: true })
+  );
+  ship.add(hull);
+
+  // Red spikes sticking out of the hull
+  const spikeMat = std(0xff3050, { emissive: 0xaa0020, emissiveIntensity: 0.7 });
+  for (let i = 0; i < 4; i++) {
+    const a = (i / 4) * Math.PI * 2 + Math.PI / 4;
+    const spike = new THREE.Mesh(new THREE.ConeGeometry(r * 0.13, r * 0.6, 6), spikeMat);
+    spike.position.set(Math.cos(a) * r * 1.05, 0, Math.sin(a) * r * 1.05);
+    spike.lookAt(Math.cos(a) * r * 3, 0, Math.sin(a) * r * 3);   // face outward...
+    spike.rotateX(Math.PI / 2);                                  // ...with the tip leading
+    ship.add(spike);
+  }
+
+  // Purple alien with glowing red eyes under a magenta dome
+  const head = new THREE.Mesh(new THREE.SphereGeometry(r * 0.4, 14, 10), std(0xc890ff, { emissive: 0x6a30b0 }));
+  head.position.y = r * 0.32;
+  ship.add(head);
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(r * 0.12, 8, 6), new THREE.MeshBasicMaterial({ color: 0xff1a1a }));
+    eye.scale.set(1.5, 0.7, 0.7);
+    eye.rotation.z = side * 0.45;             // slanted, angry eyes
+    eye.position.set(side * r * 0.16, r * 0.5, r * 0.28);
+    ship.add(eye);
+  }
+  const dome = new THREE.Mesh(
+    new THREE.SphereGeometry(r * 0.6, 18, 10, 0, Math.PI * 2, 0, Math.PI / 2),
+    new THREE.MeshStandardMaterial({ color: 0xff70e0, emissive: 0x80104a, transparent: true, opacity: 0.3, roughness: 0.1 })
+  );
+  dome.position.y = r * 0.12;
+  ship.add(dome);
+
+  // Pulsing red glow underneath
+  const glow = glowSprite(0xff2060, r * 3.2, 0.6);
+  glow.position.y = -r * 0.2;
+  ship.add(glow);
+
+  ship.scale.setScalar(1.3);                  // looks only; hits use the game's own size
+  ship.userData.animate = (it, dt) => {
+    ship.rotation.y += 3 * dt;
+    ship.rotation.x = 0.35;                     // tipped toward you, diving in to attack
+    const pulse = 0.6 + 0.4 * Math.sin((it.pulse || 0) * 1.5);
+    glow.material.opacity = 0.35 + 0.4 * pulse;
+    glow.scale.setScalar(r * (2.6 + pulse));
+  };
+  return ship;
+}
+
+const ITEM_BUILDERS = { rock: buildRock, star: buildStar, alien: buildAlien, fire: buildFire, bomb: buildBomb, enemyBomb: buildInvader };
 
 function buildItemMesh(item) {
   return ITEM_BUILDERS[item.kind](item);
